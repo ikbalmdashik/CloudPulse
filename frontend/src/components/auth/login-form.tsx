@@ -4,14 +4,24 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { CircleAlertIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { useLogin } from "@/hooks/use-auth";
+import { type SavedAccount, useLogin, useSavedAccounts } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
 import { type LoginForm as LoginValues, loginFormSchema } from "@/lib/validation";
 import { PasswordInput } from "./password-input";
@@ -20,19 +30,50 @@ export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const login = useLogin();
+  const { data: savedAccounts } = useSavedAccounts();
+  // Set when the submitted email belongs to an account already signed in here.
+  const [duplicate, setDuplicate] = useState<{ account: SavedAccount; values: LoginValues } | null>(null);
   const {
     register,
     control,
     handleSubmit,
+    reset,
     formState: { errors },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginFormSchema),
     defaultValues: { email: params.get("email") ?? "", password: "", rememberMe: false },
   });
 
-  const onSubmit = handleSubmit((values) =>
-    login.mutate(values, { onSuccess: () => router.replace("/") }),
-  );
+  // base-ui's Input keeps its own copy of the value, so reset() alone leaves the
+  // old text on screen; bumping the key remounts the fields empty.
+  const [fieldsKey, setFieldsKey] = useState(0);
+  const clearFields = () => {
+    reset({ email: "", password: "", rememberMe: false });
+    setFieldsKey((k) => k + 1);
+  };
+
+  const submit = (values: LoginValues) => login.mutate(values, { onSuccess: () => router.replace("/") });
+
+  const onSubmit = handleSubmit((values) => {
+    const email = values.email.trim().toLowerCase();
+    const account = savedAccounts?.find((a) => a.email.toLowerCase() === email);
+    if (account) return setDuplicate({ account, values });
+    submit(values);
+  });
+
+  // "Continue": log in anyway (this replaces that account's old session here).
+  const confirmDuplicate = () => {
+    if (!duplicate) return;
+    submit(duplicate.values);
+    setDuplicate(null);
+    clearFields();
+  };
+
+  // "Cancel": keep the existing session and clear the form.
+  const cancelDuplicate = () => {
+    setDuplicate(null);
+    clearFields();
+  };
 
   const serverError =
     login.error instanceof ApiError
@@ -49,7 +90,7 @@ export function LoginForm() {
         <CardTitle className="text-xl">Log in</CardTitle>
         <CardDescription>Enter your email and password to continue.</CardDescription>
       </CardHeader>
-      <form onSubmit={onSubmit} noValidate>
+      <form key={fieldsKey} onSubmit={onSubmit} noValidate>
         <CardContent>
           <FieldGroup>
             {params.get("registered") && !login.error && (
@@ -124,6 +165,26 @@ export function LoginForm() {
           </p>
         </CardFooter>
       </form>
+      <Dialog open={duplicate !== null} onOpenChange={(open) => !open && cancelDuplicate()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Account already logged in</DialogTitle>
+            <DialogDescription>
+              {duplicate && (
+                <>
+                  <span className="font-medium text-foreground">{duplicate.account.fullName}</span> (
+                  {duplicate.account.email}) is already logged in on this browser. Continue to log in again and
+                  replace that session?
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button onClick={confirmDuplicate}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
