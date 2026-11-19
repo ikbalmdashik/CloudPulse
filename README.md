@@ -1,5 +1,7 @@
 # CloudPulse
 
+[![CI](https://github.com/ikbalmdashik/CloudPulse/actions/workflows/ci.yml/badge.svg)](https://github.com/ikbalmdashik/CloudPulse/actions/workflows/ci.yml)
+
 A real-time service request management system for IT infrastructure and cloud operations. Operators submit requests (new VMs, health checks, configuration changes, audits, access resets). Supervisors approve them. A pool of background workers processes several at once, and everyone watches progress update live over WebSockets.
 
 | Document | Contents |
@@ -45,7 +47,7 @@ Full diagrams and reasoning are in [docs/DESIGN.md](docs/DESIGN.md).
 | Frontend | Next.js 16, React 19 (React Compiler), TypeScript, TanStack Query 5, react-hook-form + zod, Tailwind CSS, shadcn/ui on Base UI, Socket.IO client, sonner, next-themes |
 | Backend | Node.js, NestJS 12, TypeScript, Socket.IO (`@nestjs/websockets`), `@nestjs/jwt`, `@nestjs/config`, zod 4 |
 | Database | PostgreSQL 18, Prisma ORM (Postgres) with versioned migrations |
-| Tooling | Vitest, oxlint, ESLint, Prettier, Docker Compose |
+| Tooling | Vitest, oxlint, ESLint, Prettier, Docker + Docker Compose, GitHub Actions |
 
 Why each was chosen: [docs/DESIGN.md §8](docs/DESIGN.md#8-technology-stack-and-justification).
 
@@ -53,9 +55,13 @@ Why each was chosen: [docs/DESIGN.md §8](docs/DESIGN.md#8-technology-stack-and-
 
 ```
 CloudPulse/
+├── docker-compose.yml        # The whole stack in Docker
+├── .env.example              # Settings for the Docker stack
+├── .github/workflows/ci.yml  # CI: lint, typecheck, test, build, Docker images
 ├── docs/                     # Analysis and design documents
 ├── backend/                  # NestJS API, WebSocket gateway, worker pool
-│   ├── docker-compose.yml    # Local PostgreSQL
+│   ├── Dockerfile
+│   ├── docker-compose.yml    # PostgreSQL only, for local development
 │   ├── migrations/           # Versioned database migrations
 │   └── src/
 │       ├── auth/             # Login, sessions, guards, cookies
@@ -68,6 +74,7 @@ CloudPulse/
 │       ├── prisma/           # Schema contract and DB client
 │       └── scripts/          # seed-admin
 └── frontend/                 # Next.js web app
+    ├── Dockerfile
     └── src/
         ├── app/              # Routes: (auth) login/register, (app) dashboard, requests, admin
         ├── components/       # App shell, requests, admin, auth, ui primitives
@@ -75,7 +82,35 @@ CloudPulse/
         └── lib/              # API client, realtime client, validation, labels, types
 ```
 
-## Getting started
+## Quick start with Docker
+
+Runs the whole stack (PostgreSQL, migrations, the API with its workers, and the web app) with one command. You need only Docker.
+
+```bash
+cp .env.example .env
+```
+
+In `.env`, set `JWT_SECRET` (at least 32 random characters) and `ADMIN_PASSWORD` (at least 8 characters, with a letter and a number). Then:
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3000 and log in as `ADMIN_EMAIL`.
+
+- **What starts:**
+  - `postgres`
+  - `migrate`: applies migrations, creates the admin if it doesn't exist, then exits
+  - `backend` on port 4000
+  - `frontend` on port 3000
+- **Ports in use?** Set `FRONTEND_PORT` and `BACKEND_PORT` in `.env`.
+- **Stop:** `docker compose down`. Add `-v` to also delete the database.
+
+The images are multi-stage builds that run as a non-root user. The frontend uses Next.js standalone output, and the backend has a healthcheck that the frontend waits for.
+
+## Development setup
+
+Use this to work on the code with hot reload: the database runs in Docker, and both apps run with npm.
 
 ### Prerequisites
 
@@ -164,7 +199,7 @@ cd frontend && npm run build && npm start
 
 Set `NODE_ENV=production` for the backend, so cookies become `Secure` (HTTPS only). Point the frontend at the API with `BACKEND_URL` (server-side rewrite target) and `NEXT_PUBLIC_REALTIME_URL` (browser WebSocket URL); both default to `http://localhost:4000`.
 
-### Tests and linting
+### Tests, linting and CI
 
 ```bash
 cd backend && npm test
@@ -177,6 +212,12 @@ cd backend && npm run lint
 ```bash
 cd frontend && npm run lint
 ```
+
+[GitHub Actions](.github/workflows/ci.yml) runs on every push to `main` and on every pull request:
+
+- **Backend:** lint, typecheck, tests and build
+- **Frontend:** lint, typecheck and production build
+- **Docker:** both images build
 
 The backend has 104 unit tests covering auth, sessions and multi-account, users and roles, request lifecycle and four-eyes rules, bulk approval, worker claiming, retries and recovery, and env validation.
 
