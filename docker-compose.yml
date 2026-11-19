@@ -1,0 +1,83 @@
+# The whole stack in one command:  docker compose up --build
+# Needs a .env next to this file (copy .env.example). Then open
+# http://localhost:3000 (or FRONTEND_PORT) and log in as ADMIN_EMAIL.
+#
+# For local development with hot reload, use backend/docker-compose.yml
+# (database only) and run the apps with npm instead; see the README.
+
+name: cloudpulse
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  PORT: 4000
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/cloudpulse_db
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (at least 32 random characters)}
+  FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-3000}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+  WORKER_STEP_MS: ${WORKER_STEP_MS:-2000}
+  WORKER_FAILURE_RATE: ${WORKER_FAILURE_RATE:-0.03}
+
+services:
+  postgres:
+    image: postgres:18.7
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: cloudpulse_db
+    volumes:
+      - db_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cloudpulse_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: applies database migrations, then creates the admin from
+  # ADMIN_EMAIL / ADMIN_PASSWORD if they are set (safe to run every time).
+  migrate:
+    build:
+      context: ./backend
+      target: build
+    environment:
+      <<: *backend-env
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrator}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - npx prisma db migrate --yes && if [ -n "$$ADMIN_EMAIL" ]; then node dist/scripts/seed-admin.js; else echo "ADMIN_EMAIL not set; skipping admin seed"; fi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    environment: *backend-env
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:4000
+        NEXT_PUBLIC_REALTIME_URL: http://localhost:${BACKEND_PORT:-4000}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  db_data:
+    name: cloudpulse-stack-data

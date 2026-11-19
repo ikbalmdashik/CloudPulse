@@ -4,7 +4,8 @@ import type { NextConfig } from "next";
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  /** A self-contained server in .next/standalone, for the Docker image. */
+  output: "standalone",
   experimental: {
     agentFeedback: true,
   },
