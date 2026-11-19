@@ -8,6 +8,7 @@ import { DatabaseModule } from './database/database.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { RequestsModule } from './requests/requests.module.js';
 import { UsersModule } from './users/users.module.js';
+import { WorkerModule } from './worker/worker.module.js';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module.js';
     AuthModule,
     RealtimeModule,
     RequestsModule,
+    WorkerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

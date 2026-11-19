@@ -1,25 +1,25 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 import type { AuthUser } from '../auth/auth-user.js';
+import type { Env } from '../config/env.js';
 import type { RealtimeService } from '../realtime/realtime.service.js';
 import { createRequestSchema, updateRequestSchema } from './dto/request.schemas.js';
+import { QueueSignal } from './queue-signal.js';
 import { canTransition, isFinal, type Status } from './request-rules.js';
-import {
-  DuplicateIdempotencyKeyError,
-  generateRequestCode,
-  type RequestsRepository,
-} from './requests.repository.js';
+import { DuplicateIdempotencyKeyError, generateRequestCode, type RequestsRepository } from './requests.repository.js';
 import { RequestsService } from './requests.service.js';
 
 const operator: AuthUser = { id: 'op1', email: 'o@x.io', fullName: 'Otto', role: 'OPERATOR', sessionId: 's1' };
 const otherOperator: AuthUser = { ...operator, id: 'op2' };
 const supervisor: AuthUser = { id: 'sup1', email: 's@x.io', fullName: 'Sam', role: 'SUPERVISOR', sessionId: 's2' };
+const config = { get: () => 3 } as unknown as ConfigService<Env, true>;
 
 function row(over: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'r1',
     code: 'REQ-261119-ABCD',
     title: 'Provision VM',
-    status: 'PENDING' as Status,
+    status: 'AWAITING_APPROVAL' as Status,
     priority: 'MEDIUM',
     progress: 0,
     currentStep: null,
@@ -41,8 +41,16 @@ function setup(current = row()) {
     updateIfVersion: vi.fn().mockResolvedValue('e2'),
   };
   const realtime = { requestChanged: vi.fn() };
-  const service = new RequestsService(repo as unknown as RequestsRepository, realtime as unknown as RealtimeService);
-  return { service, repo, realtime };
+  const queue = new QueueSignal();
+  const woken = vi.fn();
+  queue.subscribe(woken);
+  const service = new RequestsService(
+    repo as unknown as RequestsRepository,
+    realtime as unknown as RealtimeService,
+    queue,
+    config,
+  );
+  return { service, repo, realtime, woken };
 }
 
 const conflict = async (p: Promise<unknown>, message: RegExp) => {
@@ -53,14 +61,17 @@ const conflict = async (p: Promise<unknown>, message: RegExp) => {
 
 describe('request lifecycle rules', () => {
   it('allows only forward moves and never leaves a final state', () => {
+    expect(canTransition('AWAITING_APPROVAL', 'PENDING')).toBe(true);
+    expect(canTransition('AWAITING_APPROVAL', 'REJECTED')).toBe(true);
+    expect(canTransition('AWAITING_APPROVAL', 'IN_PROGRESS')).toBe(false); // no processing without approval
     expect(canTransition('PENDING', 'IN_PROGRESS')).toBe(true);
     expect(canTransition('IN_PROGRESS', 'COMPLETED')).toBe(true);
     expect(canTransition('PENDING', 'COMPLETED')).toBe(false);
     expect(canTransition('COMPLETED', 'IN_PROGRESS')).toBe(false);
-    expect(['COMPLETED', 'FAILED', 'CANCELLED'].every((s) => isFinal(s as Status))).toBe(true);
+    expect(['COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED'].every((s) => isFinal(s as Status))).toBe(true);
   });
 
-  it('generates readable unique-looking codes', () => {
+  it('generates readable codes', () => {
     expect(generateRequestCode(new Date('2026-11-19T10:00:00Z'))).toMatch(/^REQ-261119-[2-9A-HJ-NP-Z]{4}$/);
   });
 });
@@ -74,33 +85,36 @@ describe('request schemas', () => {
     });
   });
 
-  it('needs a change, and a reason to mark FAILED', () => {
+  it('staff edits need a priority or a note, and no longer accept status/progress', () => {
     expect(updateRequestSchema.safeParse({ version: 1 }).success).toBe(false);
-    const failed = updateRequestSchema.safeParse({ version: 1, status: 'FAILED' });
-    expect(failed.error?.issues[0]?.path).toEqual(['errorReason']);
-    expect(updateRequestSchema.safeParse({ version: 1, status: 'FAILED', errorReason: 'disk full' }).success).toBe(true);
+    expect(updateRequestSchema.safeParse({ version: 1, priority: 'HIGH' }).success).toBe(true);
+    expect(updateRequestSchema.safeParse({ version: 1, status: 'COMPLETED' }).success).toBe(false);
+    expect(updateRequestSchema.safeParse({ version: 1, progress: 50 }).success).toBe(false);
   });
 });
 
 describe('RequestsService', () => {
   describe('create', () => {
-    it('stores the request for the caller and pushes it live', async () => {
-      const { service, repo, realtime } = setup();
+    it('stores the request awaiting approval and pushes it live, without queueing it', async () => {
+      const { service, repo, realtime, woken } = setup();
       const result = await service.create({ title: 'Provision VM', category: 'VM_PROVISIONING', priority: 'HIGH' }, operator);
 
       expect(result.created).toBe(true);
       expect(repo.create.mock.calls[0]![0]).toMatchObject({ operatorId: 'op1', priority: 'HIGH', idempotencyKey: null });
+      expect(repo.create.mock.calls[0]![1]).toMatchObject({ message: 'Submitted by Otto; awaiting approval' });
       expect(realtime.requestChanged).toHaveBeenCalledWith('op1', { request: result.request, event: { id: 'e1', eventType: 'created' } });
+      expect(woken).not.toHaveBeenCalled(); // nothing to process until it's approved
     });
 
     it('returns the original request when the same Idempotency-Key is retried', async () => {
-      const { service, repo, realtime } = setup();
+      const { service, repo, realtime, woken } = setup();
       repo.create.mockRejectedValue(new DuplicateIdempotencyKeyError('key-12345'));
       repo.findByIdempotencyKey.mockResolvedValue({ id: 'r1', operatorId: 'op1' });
 
-      const result = await service.create({ title: 'x'.repeat(5), category: 'AUDIT_REPORT', priority: 'LOW' }, operator, 'key-12345');
+      const result = await service.create({ title: 'xxxxx', category: 'AUDIT_REPORT', priority: 'LOW' }, operator, 'key-12345');
       expect(result.created).toBe(false);
       expect(realtime.requestChanged).not.toHaveBeenCalled();
+      expect(woken).not.toHaveBeenCalled();
     });
 
     it("refuses another user's Idempotency-Key", async () => {
@@ -129,38 +143,35 @@ describe('RequestsService', () => {
   });
 
   describe('update (staff)', () => {
-    it('starts a request: sets startedAt, bumps version through the repo, pushes the change', async () => {
-      const { service, repo, realtime } = setup();
-      await service.update('r1', { version: 1, status: 'IN_PROGRESS', progress: 10, currentStep: 'Allocating' }, supervisor);
+    it('changes priority with a timeline event and pushes it live', async () => {
+      const { service, repo, realtime } = setup(row({ status: 'IN_PROGRESS' }));
+      await service.update('r1', { version: 1, priority: 'CRITICAL', note: 'Customer escalation' }, supervisor);
 
       const [, version, changes, event] = repo.updateIfVersion.mock.calls[0]!;
       expect(version).toBe(1);
-      expect(changes).toMatchObject({ status: 'IN_PROGRESS', progress: 10, currentStep: 'Allocating', startedAt: expect.any(Date) });
-      expect(event).toMatchObject({ eventType: 'status_changed', fromStatus: 'PENDING', toStatus: 'IN_PROGRESS', actorId: 'sup1' });
+      expect(changes).toEqual({ priority: 'CRITICAL' });
+      expect(event).toMatchObject({
+        eventType: 'updated',
+        actorId: 'sup1',
+        message: 'Priority changed from MEDIUM to CRITICAL · Note: Customer escalation',
+      });
       expect(realtime.requestChanged).toHaveBeenCalledWith('op1', expect.objectContaining({ event: { id: 'e2' } }));
     });
 
-    it('completing sets progress 100 and completedAt', async () => {
-      const { service, repo } = setup(row({ status: 'IN_PROGRESS', progress: 70 }));
-      await service.update('r1', { version: 1, status: 'COMPLETED' }, supervisor);
-      expect(repo.updateIfVersion.mock.calls[0]![2]).toMatchObject({ status: 'COMPLETED', progress: 100, completedAt: expect.any(Date) });
+    it('adds a note even on a finished request, but not a priority change', async () => {
+      const { service, repo } = setup(row({ status: 'COMPLETED' }));
+      await service.update('r1', { version: 1, note: 'Verified by customer' }, supervisor);
+      expect(repo.updateIfVersion.mock.calls[0]![3]).toMatchObject({ eventType: 'note' });
+      await conflict(setup(row({ status: 'COMPLETED' })).service.update('r1', { version: 1, priority: 'HIGH' }, supervisor), /can no longer change/);
     });
 
     it('rejects a stale version before and during the write', async () => {
-      await conflict(setup(row({ version: 2 })).service.update('r1', { version: 1, priority: 'HIGH' }, supervisor), /changed by someone else/);
+      await conflict(setup(row({ version: 2 })).service.update('r1', { version: 1, priority: 'HIGH' }, supervisor), /changed since/);
 
       const { service, repo, realtime } = setup();
       repo.updateIfVersion.mockResolvedValue(null); // another write won the race
-      await conflict(service.update('r1', { version: 1, priority: 'HIGH' }, supervisor), /changed by someone else/);
+      await conflict(service.update('r1', { version: 1, priority: 'HIGH' }, supervisor), /changed since/);
       expect(realtime.requestChanged).not.toHaveBeenCalled();
-    });
-
-    it.each([
-      [row({ status: 'PENDING' }), { status: 'COMPLETED' as const }, /from PENDING to COMPLETED/],
-      [row({ status: 'COMPLETED' }), { priority: 'HIGH' as const }, /COMPLETED and can no longer change/],
-      [row({ status: 'PENDING' }), { progress: 50 }, /only be set while a request is IN_PROGRESS/],
-    ])('refuses invalid changes (%#)', async (current, change, message) => {
-      await conflict(setup(current).service.update('r1', { version: 1, ...change }, supervisor), message);
     });
 
     it('rejects an update that changes nothing', async () => {
@@ -171,19 +182,73 @@ describe('RequestsService', () => {
   });
 
   describe('cancel', () => {
-    it('lets the submitter cancel an unfinished request', async () => {
+    it('lets the submitter cancel an unfinished request and cancels its queued job', async () => {
       const { service, repo } = setup(row({ status: 'IN_PROGRESS' }));
       await service.cancel('r1', { version: 1, reason: 'not needed' }, operator);
-      expect(repo.updateIfVersion.mock.calls[0]![3]).toMatchObject({
-        eventType: 'cancelled',
-        toStatus: 'CANCELLED',
-        message: 'Cancelled by Otto: not needed',
-      });
+      const [, , changes, event, jobs] = repo.updateIfVersion.mock.calls[0]!;
+      expect(changes).toMatchObject({ status: 'CANCELLED', completedAt: expect.any(Date) });
+      expect(event).toMatchObject({ eventType: 'cancelled', toStatus: 'CANCELLED', message: 'Cancelled by Otto: not needed' });
+      expect(jobs).toEqual({ cancelQueued: true });
     });
 
     it("can't cancel a finished request or someone else's", async () => {
       await conflict(setup(row({ status: 'COMPLETED' })).service.cancel('r1', { version: 1 }, operator), /can't be cancelled/);
       await expect(setup().service.cancel('r1', { version: 1 }, otherOperator)).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('approve and reject (staff, four-eyes)', () => {
+    const otherAdmin: AuthUser = { id: 'adm1', email: 'a@x.io', fullName: 'Ada', role: 'ADMIN', sessionId: 's3' };
+
+    it('approving queues the request for a CPU and records who approved it', async () => {
+      const { service, repo, woken } = setup();
+      await service.approve('r1', { version: 1 }, supervisor);
+      const [, version, changes, event, jobs] = repo.updateIfVersion.mock.calls[0]!;
+      expect(version).toBe(1);
+      expect(changes).toMatchObject({ status: 'PENDING', approvedById: 'sup1', approvedAt: expect.any(Date) });
+      expect(event).toMatchObject({ eventType: 'approved', fromStatus: 'AWAITING_APPROVAL', toStatus: 'PENDING', message: 'Approved by Sam; queued for processing' });
+      expect(jobs).toEqual({ enqueue: { maxAttempts: 3 } });
+      expect(woken).toHaveBeenCalledOnce();
+    });
+
+    it("staff can't approve or reject a request they submitted themselves", async () => {
+      const own = row({ operatorId: 'sup1' });
+      await expect(setup(own).service.approve('r1', { version: 1 }, supervisor)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(setup(own).service.reject('r1', { version: 1, reason: 'nope' }, supervisor)).rejects.toBeInstanceOf(ForbiddenException);
+      // …but another supervisor or admin can.
+      await expect(setup(own).service.approve('r1', { version: 1 }, otherAdmin)).resolves.toBeDefined();
+    });
+
+    it('rejecting ends the request with the reason shown to the submitter', async () => {
+      const { service, repo, woken } = setup();
+      await service.reject('r1', { version: 1, reason: 'Use the self-service portal' }, supervisor);
+      const [, , changes, event, jobs] = repo.updateIfVersion.mock.calls[0]!;
+      expect(changes).toMatchObject({ status: 'REJECTED', errorReason: 'Use the self-service portal', completedAt: expect.any(Date) });
+      expect(event).toMatchObject({ eventType: 'rejected', toStatus: 'REJECTED', message: 'Rejected by Sam: Use the self-service portal' });
+      expect(jobs).toBeUndefined();
+      expect(woken).not.toHaveBeenCalled();
+    });
+
+    it('only requests awaiting approval can be approved or rejected', async () => {
+      await conflict(setup(row({ status: 'PENDING' })).service.approve('r1', { version: 1 }, supervisor), /only requests awaiting approval/);
+      await conflict(setup(row({ status: 'CANCELLED' })).service.reject('r1', { version: 1, reason: 'late' }, supervisor), /only requests awaiting approval/);
+      await conflict(setup(row({ version: 2 })).service.approve('r1', { version: 1 }, supervisor), /changed since/);
+    });
+  });
+
+  describe('retry (staff)', () => {
+    it('resets a FAILED request to PENDING, queues a fresh job and wakes a worker', async () => {
+      const { service, repo, woken } = setup(row({ status: 'FAILED', progress: 60, errorReason: 'disk full' }));
+      await service.retry('r1', { version: 1 }, supervisor);
+      const [, , changes, event, jobs] = repo.updateIfVersion.mock.calls[0]!;
+      expect(changes).toMatchObject({ status: 'PENDING', progress: 0, errorReason: null, completedAt: null });
+      expect(event).toMatchObject({ eventType: 'retried', fromStatus: 'FAILED', toStatus: 'PENDING' });
+      expect(jobs).toEqual({ enqueue: { maxAttempts: 3 } });
+      expect(woken).toHaveBeenCalledOnce();
+    });
+
+    it('only retries FAILED requests', async () => {
+      await conflict(setup(row({ status: 'COMPLETED' })).service.retry('r1', { version: 1 }, supervisor), /Only FAILED/);
     });
   });
 });

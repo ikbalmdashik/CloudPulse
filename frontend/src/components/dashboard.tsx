@@ -1,7 +1,8 @@
 "use client";
 
-import { ArrowRightIcon, CheckIcon, EyeIcon, PencilIcon, SendIcon, ShieldCheckIcon } from "lucide-react";
+import { ArrowRightIcon, CheckCircleIcon, CheckIcon, EyeIcon, PencilIcon, SendIcon, ShieldCheckIcon } from "lucide-react";
 import Link from "next/link";
+import { QueuePanel } from "@/components/queue-panel";
 import { RoleBadge } from "@/components/role-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,15 +13,17 @@ import type { Role } from "@/lib/types";
 const ABILITIES: Record<Role, { icon: React.ComponentType<{ className?: string }>; text: string }[]> = {
   OPERATOR: [
     { icon: SendIcon, text: "Submit service requests: VM provisioning, health checks, config updates, audits and access resets" },
-    { icon: EyeIcon, text: "Follow your requests' progress live" },
+    { icon: EyeIcon, text: "Follow your requests live: a supervisor or admin approves each one, then a CPU processes it" },
   ],
   SUPERVISOR: [
+    { icon: CheckCircleIcon, text: "Approve or reject new requests (except your own)" },
     { icon: EyeIcon, text: "Monitor every request as it is processed, in real time" },
-    { icon: PencilIcon, text: "Move requests along: start, update progress, complete, fail or cancel" },
+    { icon: PencilIcon, text: "Steer processing: reprioritise, add notes, cancel or retry failed requests" },
     { icon: SendIcon, text: "Submit service requests" },
   ],
   ADMIN: [
     { icon: ShieldCheckIcon, text: "Manage users: promote operators to supervisors, or demote them" },
+    { icon: CheckCircleIcon, text: "Approve or reject new requests (except your own)" },
     { icon: PencilIcon, text: "Monitor and manage every request in real time" },
   ],
 };
@@ -48,6 +51,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
+        {user.role !== "OPERATOR" && <QueuePanel />}
         <Card>
           <CardHeader>
             <CardTitle>What you can do</CardTitle>

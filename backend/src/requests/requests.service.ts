@@ -1,13 +1,26 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { AuthUser } from '../auth/auth-user.js';
+import type { Env } from '../config/env.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { STAFF_ROLES } from '../realtime/realtime.gateway.js';
 import type {
+  ApproveRequestDto,
   CancelRequestDto,
   CreateRequestDto,
   ListRequestsQuery,
+  RejectRequestDto,
+  RetryRequestDto,
   UpdateRequestDto,
 } from './dto/request.schemas.js';
+import { QueueSignal } from './queue-signal.js';
 import { canTransition, isFinal } from './request-rules.js';
 import {
   DuplicateIdempotencyKeyError,
@@ -19,21 +32,35 @@ import {
 
 const isStaff = (user: AuthUser) => STAFF_ROLES.includes(user.role);
 const STALE =
-  'This request was changed by someone else since you loaded it. Reload to see the latest version, then try again.';
+  'This request was changed since you loaded it. Reload to see the latest version, then try again.';
 
-/** Business rules for service requests. Knows nothing about HTTP or SQL. */
+/**
+ * Business rules for service requests. Knows nothing about HTTP or SQL.
+ *
+ * Lifecycle: a submitted request waits AWAITING_APPROVAL until a supervisor
+ * or admin who did not submit it approves it (→ PENDING, queued) or rejects
+ * it (→ REJECTED). The background CPUs then move it IN_PROGRESS → COMPLETED
+ * (or FAILED after its retries). People also steer it through priority,
+ * notes, cancel and retry.
+ */
 @Injectable()
 export class RequestsService {
   private readonly logger = new Logger(RequestsService.name);
+  private readonly maxAttempts: number;
 
   constructor(
     private readonly requests: RequestsRepository,
     private readonly realtime: RealtimeService,
-  ) {}
+    private readonly queue: QueueSignal,
+    config: ConfigService<Env, true>,
+  ) {
+    this.maxAttempts = config.get('WORKER_MAX_ATTEMPTS', { infer: true });
+  }
 
   /**
-   * Submits a request. With an `Idempotency-Key`, retrying the same submission
-   * (e.g. after a network error) returns the first request instead of a duplicate.
+   * Submits a request; it waits for approval. With an `Idempotency-Key`,
+   * retrying the same submission (e.g. after a network error) returns the
+   * first request instead of a duplicate.
    */
   async create(
     dto: CreateRequestDto,
@@ -52,7 +79,7 @@ export class RequestsService {
           operatorId: user.id,
           idempotencyKey: idempotencyKey ?? null,
         },
-        { actorId: user.id, message: `Submitted by ${user.fullName}` },
+        { actorId: user.id, message: `Submitted by ${user.fullName}; awaiting approval` },
       );
     } catch (err) {
       if (!(err instanceof DuplicateIdempotencyKeyError)) throw err;
@@ -66,7 +93,7 @@ export class RequestsService {
     const request = (await this.requests.findById(id))!;
     const [event] = await this.requests.findEvents(id);
     this.realtime.requestChanged(request.operatorId, { request, event });
-    this.logger.log(`Request ${request.code} created by ${user.id}`);
+    this.logger.log(`Request ${request.code} created by ${user.id}; awaiting approval`);
     return { request, created: true };
   }
 
@@ -81,79 +108,38 @@ export class RequestsService {
     return { ...request, events };
   }
 
-  /** Supervisor/admin changes: status, progress, current step, priority, or a note. */
+  /** Supervisor/admin edits: priority (moves it in the queue) and/or a timeline note. */
   async update(id: string, dto: UpdateRequestDto, user: AuthUser): Promise<RequestRow> {
     const current = await this.findVisible(id, user);
     if (current.version !== dto.version) throw new ConflictException(STALE);
-    if (isFinal(current.status)) {
-      throw new ConflictException(`This request is ${current.status} and can no longer change`);
-    }
 
-    const now = new Date();
     const changes: RequestChanges = {};
     const parts: string[] = [];
-    let nextStatus = current.status;
-
-    if (dto.status !== undefined && dto.status !== current.status) {
-      if (!canTransition(current.status, dto.status)) {
-        throw new ConflictException(`Can't change status from ${current.status} to ${dto.status}`);
-      }
-      nextStatus = dto.status;
-      changes.status = dto.status;
-      parts.push(`Status changed from ${current.status} to ${dto.status}`);
-      if (dto.status === 'IN_PROGRESS' && !current.startedAt) changes.startedAt = now;
-      if (dto.status === 'COMPLETED') {
-        changes.progress = 100;
-        changes.currentStep = null;
-      }
-      if (dto.status === 'FAILED') changes.errorReason = dto.errorReason!;
-      if (isFinal(dto.status)) changes.completedAt = now;
-    }
-
-    if (dto.progress !== undefined || dto.currentStep !== undefined) {
-      if (nextStatus !== 'IN_PROGRESS') {
-        throw new ConflictException('Progress and current step can only be set while a request is IN_PROGRESS');
-      }
-      if (dto.progress !== undefined && dto.progress !== current.progress) {
-        changes.progress = dto.progress;
-        parts.push(`Progress ${dto.progress}%`);
-      }
-      if (dto.currentStep !== undefined && (dto.currentStep || null) !== current.currentStep) {
-        changes.currentStep = dto.currentStep || null;
-        if (changes.currentStep) parts.push(`Step: ${changes.currentStep}`);
-      }
-    }
-
     if (dto.priority !== undefined && dto.priority !== current.priority) {
+      if (isFinal(current.status)) {
+        throw new ConflictException(`This request is ${current.status}; its priority can no longer change`);
+      }
       changes.priority = dto.priority;
       parts.push(`Priority changed from ${current.priority} to ${dto.priority}`);
     }
-
     const note = dto.note?.trim();
-    if (Object.keys(changes).length === 0 && !note) {
-      throw new BadRequestException('Nothing to change: the request already has these values');
+    if (!changes.priority && !note) {
+      throw new BadRequestException('Nothing to change: the request already has this priority');
     }
     if (note) parts.push(`Note: ${note}`);
 
-    const event: NewEvent = {
+    return this.apply(current, dto.version, changes, {
       actorId: user.id,
-      eventType: changes.status
-        ? 'status_changed'
-        : changes.progress !== undefined || changes.currentStep !== undefined
-          ? 'progress_updated'
-          : changes.priority
-            ? 'updated'
-            : 'note',
-      fromStatus: changes.status ? current.status : null,
-      toStatus: changes.status ?? null,
-      progress: changes.progress ?? null,
+      eventType: changes.priority ? 'updated' : 'note',
       message: parts.join(' · '),
-      metadata: dto.errorReason ? { errorReason: dto.errorReason } : null,
-    };
-    return this.apply(current, dto.version, changes, event);
+    });
   }
 
-  /** The submitter (or any supervisor/admin) cancels a request that hasn't finished. */
+  /**
+   * The submitter (or any supervisor/admin) cancels a request that hasn't
+   * finished. A queued job is cancelled with it; a running job stops at its
+   * next step.
+   */
   async cancel(id: string, dto: CancelRequestDto, user: AuthUser): Promise<RequestRow> {
     const current = await this.findVisible(id, user);
     if (current.version !== dto.version) throw new ConflictException(STALE);
@@ -164,7 +150,7 @@ export class RequestsService {
     return this.apply(
       current,
       dto.version,
-      { status: 'CANCELLED', completedAt: new Date() },
+      { status: 'CANCELLED', completedAt: new Date(), currentStep: null },
       {
         actorId: user.id,
         eventType: 'cancelled',
@@ -172,20 +158,111 @@ export class RequestsService {
         toStatus: 'CANCELLED',
         message: `Cancelled by ${user.fullName}${reason ? `: ${reason}` : ''}`,
       },
+      { cancelQueued: true },
     );
   }
 
-  /** Writes the change (if the version still matches), then pushes it live. */
-  private async apply(current: RequestRow, version: number, changes: RequestChanges, event: NewEvent) {
-    const eventId = await this.requests.updateIfVersion(current.id, version, changes, event);
-    if (!eventId) throw new ConflictException(STALE);
+  /**
+   * Supervisor/admin approves a request, which queues it for a CPU.
+   * Four-eyes rule: nobody can approve a request they submitted themselves.
+   */
+  async approve(id: string, dto: ApproveRequestDto, user: AuthUser): Promise<RequestRow> {
+    const current = await this.findVisible(id, user);
+    if (current.operatorId === user.id) {
+      throw new ForbiddenException("You can't approve your own request; another supervisor or admin must approve it");
+    }
+    if (current.version !== dto.version) throw new ConflictException(STALE);
+    if (current.status !== 'AWAITING_APPROVAL') {
+      throw new ConflictException(`This request is ${current.status}; only requests awaiting approval can be approved`);
+    }
+    const now = new Date();
+    const request = await this.apply(
+      current,
+      dto.version,
+      { status: 'PENDING', approvedById: user.id, approvedAt: now },
+      {
+        actorId: user.id,
+        eventType: 'approved',
+        fromStatus: 'AWAITING_APPROVAL',
+        toStatus: 'PENDING',
+        message: `Approved by ${user.fullName}; queued for processing`,
+      },
+      { enqueue: { maxAttempts: this.maxAttempts } },
+    );
+    this.queue.notify(); // wake an idle CPU now rather than at its next poll
+    return request;
+  }
 
-    const [request, savedEvent] = await Promise.all([
-      this.requests.findById(current.id),
+  /** Supervisor/admin turns a request down, with a reason the submitter sees. Same four-eyes rule. */
+  async reject(id: string, dto: RejectRequestDto, user: AuthUser): Promise<RequestRow> {
+    const current = await this.findVisible(id, user);
+    if (current.operatorId === user.id) {
+      throw new ForbiddenException("You can't reject your own request; cancel it instead");
+    }
+    if (current.version !== dto.version) throw new ConflictException(STALE);
+    if (current.status !== 'AWAITING_APPROVAL') {
+      throw new ConflictException(`This request is ${current.status}; only requests awaiting approval can be rejected`);
+    }
+    return this.apply(
+      current,
+      dto.version,
+      { status: 'REJECTED', completedAt: new Date(), errorReason: dto.reason },
+      {
+        actorId: user.id,
+        eventType: 'rejected',
+        fromStatus: 'AWAITING_APPROVAL',
+        toStatus: 'REJECTED',
+        message: `Rejected by ${user.fullName}: ${dto.reason}`,
+        metadata: { reason: dto.reason },
+      },
+    );
+  }
+
+  /** Supervisor/admin: run a FAILED request again from the start, with a fresh set of attempts. */
+  async retry(id: string, dto: RetryRequestDto, user: AuthUser): Promise<RequestRow> {
+    const current = await this.findVisible(id, user);
+    if (current.version !== dto.version) throw new ConflictException(STALE);
+    if (current.status !== 'FAILED') {
+      throw new ConflictException(`Only FAILED requests can be retried; this one is ${current.status}`);
+    }
+    const request = await this.apply(
+      current,
+      dto.version,
+      { status: 'PENDING', progress: 0, currentStep: null, errorReason: null, result: null, startedAt: null, completedAt: null },
+      {
+        actorId: user.id,
+        eventType: 'retried',
+        fromStatus: 'FAILED',
+        toStatus: 'PENDING',
+        message: `Retried by ${user.fullName}; queued for processing`,
+      },
+      { enqueue: { maxAttempts: this.maxAttempts } },
+    );
+    this.queue.notify();
+    return request;
+  }
+
+  /** Loads a request and one of its events and pushes them to everyone who may see it. */
+  async publish(requestId: string, eventId: string): Promise<RequestRow | null> {
+    const [request, event] = await Promise.all([
+      this.requests.findById(requestId),
       this.requests.findEvent(eventId),
     ]);
-    this.realtime.requestChanged(request!.operatorId, { request, event: savedEvent });
-    return request!;
+    if (request) this.realtime.requestChanged(request.operatorId, { request, event });
+    return request;
+  }
+
+  /** Writes the change (if the version still matches), then pushes it live. */
+  private async apply(
+    current: RequestRow,
+    version: number,
+    changes: RequestChanges,
+    event: NewEvent,
+    jobs?: Parameters<RequestsRepository['updateIfVersion']>[4],
+  ) {
+    const eventId = await this.requests.updateIfVersion(current.id, version, changes, event, jobs);
+    if (!eventId) throw new ConflictException(STALE);
+    return (await this.publish(current.id, eventId))!;
   }
 
   /** The request, if this user may see it. Others get 404, so ids can't be probed. */

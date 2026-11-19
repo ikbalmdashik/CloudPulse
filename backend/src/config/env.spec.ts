@@ -11,6 +11,13 @@ describe('validateEnv', () => {
       ACCESS_TOKEN_TTL_MINUTES: 10,
       SESSION_TTL_HOURS: 8,
       REMEMBER_ME_DAYS: 30,
+      WORKER_ENABLED: true,
+      WORKER_CONCURRENCY: 4,
+      WORKER_POLL_MS: 1000,
+      WORKER_LEASE_SECONDS: 30,
+      WORKER_MAX_ATTEMPTS: 3,
+      WORKER_STEP_MS: 2000,
+      WORKER_FAILURE_RATE: 0.03,
       FRONTEND_ORIGIN: 'http://localhost:3000',
     });
   });

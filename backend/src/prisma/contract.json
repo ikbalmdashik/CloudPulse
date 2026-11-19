@@ -79,6 +79,10 @@
             "codecId": "pg/text@1",
             "members": [
               {
+                "name": "AWAITING_APPROVAL",
+                "value": "AWAITING_APPROVAL"
+              },
+              {
                 "name": "PENDING",
                 "value": "PENDING"
               },
@@ -97,6 +101,10 @@
               {
                 "name": "CANCELLED",
                 "value": "CANCELLED"
+              },
+              {
+                "name": "REJECTED",
+                "value": "REJECTED"
               }
             ]
           },
@@ -322,6 +330,23 @@
           },
           "Request": {
             "fields": {
+              "approvedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-date@1",
+                  "kind": "scalar",
+                  "typeParams": {
+                    "precision": 3
+                  }
+                }
+              },
+              "approvedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "cancelRequestedAt": {
                 "nullable": true,
                 "type": {
@@ -514,6 +539,22 @@
               }
             },
             "relations": {
+              "approvedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "approvedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
               "events": {
                 "cardinality": "1:N",
                 "on": {
@@ -563,6 +604,12 @@
             },
             "storage": {
               "fields": {
+                "approvedAt": {
+                  "column": "approved_at"
+                },
+                "approvedById": {
+                  "column": "approved_by_id"
+                },
                 "cancelRequestedAt": {
                   "column": "cancel_requested_at"
                 },
@@ -1002,6 +1049,21 @@
               }
             },
             "relations": {
+              "approvedRequests": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "approvedById"
+                  ]
+                },
+                "to": {
+                  "model": "Request",
+                  "namespace": "public"
+                }
+              },
               "createdRequests": {
                 "cardinality": "1:N",
                 "on": {
@@ -1293,13 +1355,13 @@
                   "prefix": "events_progress_range"
                 },
                 {
-                  "expression": "\"from_status\" IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED')",
-                  "name": "request_events_from_status_check_2a3631db",
+                  "expression": "\"from_status\" IN ('AWAITING_APPROVAL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED')",
+                  "name": "request_events_from_status_check_c2c66663",
                   "prefix": "request_events_from_status_check"
                 },
                 {
-                  "expression": "\"to_status\" IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED')",
-                  "name": "request_events_to_status_check_cba5e467",
+                  "expression": "\"to_status\" IN ('AWAITING_APPROVAL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED')",
+                  "name": "request_events_to_status_check_84afe507",
                   "prefix": "request_events_to_status_check"
                 }
               ],
@@ -1472,8 +1534,8 @@
                   "prefix": "requests_progress_range"
                 },
                 {
-                  "expression": "\"status\" IN ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED')",
-                  "name": "requests_status_check_d01fdbaf",
+                  "expression": "\"status\" IN ('AWAITING_APPROVAL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED')",
+                  "name": "requests_status_check_fb2aa1f0",
                   "prefix": "requests_status_check"
                 },
                 {
@@ -1483,6 +1545,19 @@
                 }
               ],
               "columns": {
+                "approved_at": {
+                  "codecId": "pg/timestamptz-date@1",
+                  "dataType": "pg/timestamptz",
+                  "nullable": true,
+                  "typeParams": {
+                    "precision": 3
+                  }
+                },
+                "approved_by_id": {
+                  "codecId": "pg/text@1",
+                  "dataType": "pg/text",
+                  "nullable": true
+                },
                 "cancel_requested_at": {
                   "codecId": "pg/timestamptz-date@1",
                   "dataType": "pg/timestamptz",
@@ -1613,7 +1688,7 @@
                   "dataType": "pg/text",
                   "default": {
                     "kind": "literal",
-                    "value": "PENDING"
+                    "value": "AWAITING_APPROVAL"
                   },
                   "nullable": false,
                   "valueSet": {
@@ -1666,6 +1741,26 @@
                     "namespaceId": "public",
                     "tableName": "users"
                   }
+                },
+                {
+                  "index": {
+                    "name": "requests_approved_by_id_idx_0d5fa022"
+                  },
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "approved_by_id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "requests"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "users"
+                  }
                 }
               ],
               "indexes": [
@@ -1679,6 +1774,14 @@
                   "prefix": "requests_active_queue",
                   "unique": false,
                   "where": "deleted_at IS NULL"
+                },
+                {
+                  "columns": [
+                    "approved_by_id"
+                  ],
+                  "name": "requests_approved_by_id_idx_0d5fa022",
+                  "prefix": "requests_approved_by_id_idx",
+                  "unique": false
                 },
                 {
                   "columns": [
@@ -1987,11 +2090,13 @@
             "RequestStatus": {
               "kind": "valueSet",
               "values": [
+                "AWAITING_APPROVAL",
                 "PENDING",
                 "IN_PROGRESS",
                 "COMPLETED",
                 "FAILED",
-                "CANCELLED"
+                "CANCELLED",
+                "REJECTED"
               ]
             },
             "Role": {
@@ -2018,7 +2123,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "f42c904d49a2ef9a09d560527f5193165d01cb4236e7d55376ef53f8b425f6c0"
+    "storageHash": "2ca20c3836c601b2ffa8e683fc554b3a5c34e9745f9fb09801f4943311a77398"
   },
   "execution": {
     "executionHash": "27c141f9f158fa5e94cb6ff75537977d0b958afaae75396c1741ea43e2bbfb41",

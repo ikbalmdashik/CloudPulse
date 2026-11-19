@@ -4,11 +4,13 @@ import type { Priority, Status } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLE: Record<Status, string> = {
+  AWAITING_APPROVAL: "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300",
   PENDING: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   IN_PROGRESS: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
   COMPLETED: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   FAILED: "border-destructive/40 bg-destructive/10 text-destructive",
   CANCELLED: "border-border bg-muted text-muted-foreground",
+  REJECTED: "border-destructive/30 bg-muted text-destructive",
 };
 
 export function StatusBadge({ status, className }: { status: Status; className?: string }) {

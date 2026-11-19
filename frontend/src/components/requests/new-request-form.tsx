@@ -92,7 +92,8 @@ function RequestForm({ onDone }: { onDone: () => void }) {
       <CardHeader>
         <CardTitle className="text-xl">New service request</CardTitle>
         <CardDescription>
-          Tell the operations team what you need. You can follow its progress live once it&apos;s submitted.
+          Tell the operations team what you need. A supervisor or admin approves it, then it&apos;s processed
+          automatically; you can follow every step live.
         </CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit} noValidate>

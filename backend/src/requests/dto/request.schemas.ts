@@ -45,41 +45,43 @@ export const listRequestsQuerySchema = z.strictObject({
 export type ListRequestsQuery = z.infer<typeof listRequestsQuerySchema>;
 
 /**
- * Body of `PATCH /requests/:id` (supervisors and admins). `version` is the
- * request version the client last saw: if someone else changed the request
- * since, the update is refused (409) instead of silently overwriting theirs.
+ * Body of `PATCH /requests/:id` (supervisors and admins): change the priority
+ * (which moves the request in the processing queue) and/or add a timeline
+ * note. Status and progress are driven by the background workers; staff use
+ * cancel and retry to intervene. `version` is the request version the client
+ * last saw: if it changed since, the edit is refused (409) instead of
+ * silently overwriting someone else's.
  */
 export const updateRequestSchema = z
   .strictObject({
     version,
-    status: z.enum(STATUSES, { error: `must be one of ${STATUSES.join(', ')}` }).optional(),
-    progress: z
-      .number({ error: 'must be a number' })
-      .int({ error: 'must be a whole number' })
-      .min(0, { error: 'must be 0-100' })
-      .max(100, { error: 'must be 0-100' })
-      .optional(),
-    currentStep: z.string().trim().max(200, { error: 'must be at most 200 characters' }).nullable().optional(),
     priority: z.enum(PRIORITIES, { error: `must be one of ${PRIORITIES.join(', ')}` }).optional(),
-    /** Why the request failed; required when setting status FAILED. */
-    errorReason: z.string().trim().min(1).max(500, { error: 'must be at most 500 characters' }).optional(),
     /** A note recorded in the request's timeline. */
     note: z.string().trim().max(500, { error: 'must be at most 500 characters' }).optional(),
   })
-  .refine(
-    (v) =>
-      v.status !== undefined ||
-      v.progress !== undefined ||
-      v.currentStep !== undefined ||
-      v.priority !== undefined ||
-      (v.note !== undefined && v.note !== ''),
-    { error: 'nothing to change: send status, progress, currentStep, priority or note' },
-  )
-  .refine((v) => v.status !== 'FAILED' || v.errorReason, {
-    path: ['errorReason'],
-    error: 'is required when marking a request as FAILED',
+  .refine((v) => v.priority !== undefined || (v.note !== undefined && v.note !== ''), {
+    error: 'nothing to change: send priority or note',
   });
 export type UpdateRequestDto = z.infer<typeof updateRequestSchema>;
+
+/** Body of `POST /requests/:id/approve` (a supervisor or admin who didn't submit it). */
+export const approveRequestSchema = z.strictObject({ version });
+export type ApproveRequestDto = z.infer<typeof approveRequestSchema>;
+
+/** Body of `POST /requests/:id/reject`: the reason is shown to the submitter. */
+export const rejectRequestSchema = z.strictObject({
+  version,
+  reason: z
+    .string({ error: 'is required: tell the submitter why' })
+    .trim()
+    .min(3, { error: 'is required: tell the submitter why (at least 3 characters)' })
+    .max(500, { error: 'must be at most 500 characters' }),
+});
+export type RejectRequestDto = z.infer<typeof rejectRequestSchema>;
+
+/** Body of `POST /requests/:id/retry` (supervisors and admins). */
+export const retryRequestSchema = z.strictObject({ version });
+export type RetryRequestDto = z.infer<typeof retryRequestSchema>;
 
 /** Body of `POST /requests/:id/cancel`. */
 export const cancelRequestSchema = z.strictObject({

@@ -1,7 +1,7 @@
 "use client";
 
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
 import { meQueryKey } from "@/hooks/use-auth";
@@ -9,7 +9,7 @@ import { requestKeys } from "@/hooks/use-requests";
 import { refreshSession } from "@/lib/api";
 import { STATUS_LABEL } from "@/lib/labels";
 import { EVENTS, REALTIME_URL, type RequestChangedPayload, UNAUTHORIZED } from "@/lib/realtime";
-import type { Page, RequestDetail, ServiceRequest, SessionUser } from "@/lib/types";
+import { isStaff, type Page, type RequestDetail, type ServiceRequest, type SessionUser } from "@/lib/types";
 
 export type LiveStatus = "connecting" | "live" | "offline";
 
@@ -35,6 +35,8 @@ function applyRequestChange(qc: QueryClient, { request, event }: RequestChangedP
   );
   // …then refetch them, since a new or changed request can enter or leave a filtered page.
   void qc.invalidateQueries({ queryKey: requestKeys.lists() });
+  // And the staff queue panel (counts and worker activity).
+  void qc.invalidateQueries({ queryKey: requestKeys.stats() });
 }
 
 /**
@@ -47,6 +49,12 @@ export function RealtimeProvider({ user, children }: { user?: SessionUser | null
   const [status, setStatus] = useState<LiveStatus>("connecting");
 
   const userId = user?.id;
+  // The socket handlers outlive renders; read the latest role through a ref
+  // (a promotion or demotion changes it without reconnecting the handlers).
+  const roleRef = useRef(user?.role);
+  useEffect(() => {
+    roleRef.current = user?.role;
+  }, [user?.role]);
 
   useEffect(() => {
     if (!userId) return;
@@ -79,10 +87,24 @@ export function RealtimeProvider({ user, children }: { user?: SessionUser | null
     socket.on(EVENTS.requestChanged, (payload: RequestChangedPayload) => {
       applyRequestChange(qc, payload);
       const { request, event } = payload;
-      // Tell operators when someone else moves their request along.
+      // Tell submitters when someone else moves their request along.
       if (request.operatorId === userId && event.actor?.id !== userId && event.toStatus) {
-        toast.info(`${request.code} is now ${STATUS_LABEL[event.toStatus].toLowerCase()}`, {
-          description: request.title,
+        const what =
+          event.eventType === "approved"
+            ? `was approved by ${event.actor?.fullName ?? "a supervisor"}`
+            : event.eventType === "rejected"
+              ? `was rejected by ${event.actor?.fullName ?? "a supervisor"}`
+              : `is now ${STATUS_LABEL[event.toStatus].toLowerCase()}`;
+        toast.info(`${request.code} ${what}`, { description: request.title });
+      }
+      // Tell staff when someone else's request needs approval.
+      if (
+        isStaff(roleRef.current) &&
+        event.eventType === "created" &&
+        request.operatorId !== userId
+      ) {
+        toast.info(`${request.code} needs approval`, {
+          description: `${request.title} — from ${request.operator?.fullName ?? "an operator"}`,
         });
       }
     });

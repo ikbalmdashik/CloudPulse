@@ -1,0 +1,549 @@
+[
+  {
+    "id": "dropCheckConstraint.request_events.request_events_from_status_check_2a3631db",
+    "label": "Drop check constraint \"request_events_from_status_check_2a3631db\" on \"request_events\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "request_events_from_status_check_2a3631db",
+        "table": "request_events"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"request_events_from_status_check_2a3631db\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "request_events_from_status_check_2a3631db",
+          "public",
+          "\"public\".\"request_events\""
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "constraint \"request_events_from_status_check_2a3631db\" on \"request_events\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop check constraint \"request_events_from_status_check_2a3631db\"",
+        "sql": "ALTER TABLE \"public\".\"request_events\" DROP CONSTRAINT \"request_events_from_status_check_2a3631db\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"request_events_from_status_check_2a3631db\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "request_events_from_status_check_2a3631db",
+          "public",
+          "\"public\".\"request_events\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"request_events_from_status_check_2a3631db\" on \"request_events\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "dropCheckConstraint.request_events.request_events_to_status_check_cba5e467",
+    "label": "Drop check constraint \"request_events_to_status_check_cba5e467\" on \"request_events\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "request_events_to_status_check_cba5e467",
+        "table": "request_events"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"request_events_to_status_check_cba5e467\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "request_events_to_status_check_cba5e467",
+          "public",
+          "\"public\".\"request_events\""
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "constraint \"request_events_to_status_check_cba5e467\" on \"request_events\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop check constraint \"request_events_to_status_check_cba5e467\"",
+        "sql": "ALTER TABLE \"public\".\"request_events\" DROP CONSTRAINT \"request_events_to_status_check_cba5e467\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"request_events_to_status_check_cba5e467\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "request_events_to_status_check_cba5e467",
+          "public",
+          "\"public\".\"request_events\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"request_events_to_status_check_cba5e467\" on \"request_events\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "dropCheckConstraint.requests.requests_status_check_d01fdbaf",
+    "label": "Drop check constraint \"requests_status_check_d01fdbaf\" on \"requests\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "requests_status_check_d01fdbaf",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"requests_status_check_d01fdbaf\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "requests_status_check_d01fdbaf",
+          "public",
+          "\"public\".\"requests\""
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "constraint \"requests_status_check_d01fdbaf\" on \"requests\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop check constraint \"requests_status_check_d01fdbaf\"",
+        "sql": "ALTER TABLE \"public\".\"requests\" DROP CONSTRAINT \"requests_status_check_d01fdbaf\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"requests_status_check_d01fdbaf\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "requests_status_check_d01fdbaf",
+          "public",
+          "\"public\".\"requests\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"requests_status_check_d01fdbaf\" on \"requests\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "column.public.requests.approved_at",
+    "label": "Add column \"approved_at\" to \"requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "approved_at",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"approved_at\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "approved_at"
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "column \"approved_at\" on \"requests\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"approved_at\"",
+        "sql": "ALTER TABLE \"public\".\"requests\" ADD COLUMN \"approved_at\" timestamptz(3)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"approved_at\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "approved_at"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "column \"approved_at\" on \"requests\""
+        }
+      },
+      {
+        "description": "verify column \"approved_at\" has type \"timestamp(3) with time zone\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_attribute\" AS \"a\" INNER JOIN \"pg_class\" AS \"c\" ON \"c\".\"oid\" = \"a\".\"attrelid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND \"a\".\"attname\" = $3 AND (format_type(\"a\".\"atttypid\", \"a\".\"atttypmod\")) = $4 AND NOT (\"a\".\"attisdropped\"))) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "approved_at",
+          "timestamp(3) with time zone"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.requests.approved_by_id",
+    "label": "Add column \"approved_by_id\" to \"requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "approved_by_id",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"approved_by_id\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "approved_by_id"
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "column \"approved_by_id\" on \"requests\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"approved_by_id\"",
+        "sql": "ALTER TABLE \"public\".\"requests\" ADD COLUMN \"approved_by_id\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"approved_by_id\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "approved_by_id"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "column \"approved_by_id\" on \"requests\""
+        }
+      },
+      {
+        "description": "verify column \"approved_by_id\" has type \"text\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_attribute\" AS \"a\" INNER JOIN \"pg_class\" AS \"c\" ON \"c\".\"oid\" = \"a\".\"attrelid\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND \"a\".\"attname\" = $3 AND (format_type(\"a\".\"atttypid\", \"a\".\"atttypmod\")) = $4 AND NOT (\"a\".\"attisdropped\"))) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "approved_by_id",
+          "text"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "setDefault.requests.status",
+    "label": "Set default on \"requests\".\"status\"",
+    "operationClass": "widening",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "status",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"status\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "requests",
+          "status"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "column \"status\" on \"requests\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "set default on \"status\"",
+        "sql": "ALTER TABLE \"public\".\"requests\" ALTER COLUMN \"status\" SET DEFAULT 'AWAITING_APPROVAL'"
+      }
+    ],
+    "postcheck": []
+  },
+  {
+    "id": "checkConstraint.request_events.request_events_from_status_check_c2c66663",
+    "label": "Add check constraint \"request_events_from_status_check_c2c66663\" on \"request_events\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "request_events_from_status_check_c2c66663",
+        "table": "request_events"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"request_events_from_status_check_c2c66663\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "request_events_from_status_check_c2c66663",
+          "public",
+          "\"public\".\"request_events\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"request_events_from_status_check_c2c66663\" on \"request_events\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"request_events_from_status_check_c2c66663\"",
+        "sql": "ALTER TABLE \"public\".\"request_events\" ADD CONSTRAINT \"request_events_from_status_check_c2c66663\" CHECK (\"from_status\" IN ('AWAITING_APPROVAL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify check constraint \"request_events_from_status_check_c2c66663\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4)) AS \"result\"",
+        "params": [
+          "request_events_from_status_check_c2c66663",
+          "public",
+          "\"public\".\"request_events\"",
+          "c"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.request_events.request_events_to_status_check_84afe507",
+    "label": "Add check constraint \"request_events_to_status_check_84afe507\" on \"request_events\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "request_events_to_status_check_84afe507",
+        "table": "request_events"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"request_events_to_status_check_84afe507\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "request_events_to_status_check_84afe507",
+          "public",
+          "\"public\".\"request_events\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"request_events_to_status_check_84afe507\" on \"request_events\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"request_events_to_status_check_84afe507\"",
+        "sql": "ALTER TABLE \"public\".\"request_events\" ADD CONSTRAINT \"request_events_to_status_check_84afe507\" CHECK (\"to_status\" IN ('AWAITING_APPROVAL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify check constraint \"request_events_to_status_check_84afe507\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4)) AS \"result\"",
+        "params": [
+          "request_events_to_status_check_84afe507",
+          "public",
+          "\"public\".\"request_events\"",
+          "c"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.requests.requests_status_check_fb2aa1f0",
+    "label": "Add check constraint \"requests_status_check_fb2aa1f0\" on \"requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "requests_status_check_fb2aa1f0",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"requests_status_check_fb2aa1f0\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "requests_status_check_fb2aa1f0",
+          "public",
+          "\"public\".\"requests\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"requests_status_check_fb2aa1f0\" on \"requests\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"requests_status_check_fb2aa1f0\"",
+        "sql": "ALTER TABLE \"public\".\"requests\" ADD CONSTRAINT \"requests_status_check_fb2aa1f0\" CHECK (\"status\" IN ('AWAITING_APPROVAL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED', 'REJECTED'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify check constraint \"requests_status_check_fb2aa1f0\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4)) AS \"result\"",
+        "params": [
+          "requests_status_check_fb2aa1f0",
+          "public",
+          "\"public\".\"requests\"",
+          "c"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.requests.requests_approved_by_id_idx_0d5fa022",
+    "label": "Create index \"requests_approved_by_id_idx_0d5fa022\" on \"requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "requests_approved_by_id_idx_0d5fa022",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"requests_approved_by_id_idx_0d5fa022\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"requests_approved_by_id_idx_0d5fa022\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "index \"requests_approved_by_id_idx_0d5fa022\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"requests_approved_by_id_idx_0d5fa022\"",
+        "sql": "CREATE INDEX \"requests_approved_by_id_idx_0d5fa022\" ON \"public\".\"requests\" (\"approved_by_id\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"requests_approved_by_id_idx_0d5fa022\" exists on \"requests\" with the planned definition",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_index\" AS \"i\" ON \"i\".\"indexrelid\" = \"c\".\"oid\" INNER JOIN \"pg_am\" AS \"m\" ON \"m\".\"oid\" = \"c\".\"relam\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3) AND \"i\".\"indrelid\" = to_regclass($4) AND NOT (\"i\".\"indisunique\") AND \"m\".\"amname\" = $5 AND (\"i\".\"indexprs\" IS NULL AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"i\".\"indkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"i\".\"indrelid\" AND key_attribute.attnum = key_column.attnum) = ($6)::jsonb) AND \"i\".\"indpred\" IS NULL)) AS \"result\"",
+        "params": [
+          "\"public\".\"requests_approved_by_id_idx_0d5fa022\"",
+          "i",
+          "I",
+          "\"public\".\"requests\"",
+          "btree",
+          "[\"approved_by_id\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.requests.requests_approved_by_id_fkey",
+    "label": "Add foreign key \"requests_approved_by_id_fkey\" on \"requests\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "requests_approved_by_id_fkey",
+        "table": "requests"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"requests_approved_by_id_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "requests_approved_by_id_fkey",
+          "public",
+          "\"public\".\"requests\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "FK \"requests_approved_by_id_fkey\" on \"requests\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"requests_approved_by_id_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"requests\"\nADD CONSTRAINT \"requests_approved_by_id_fkey\"\nFOREIGN KEY (\"approved_by_id\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"requests_approved_by_id_fkey\" exists with the planned columns, referenced table and actions",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb AND \"c\".\"confrelid\" = to_regclass($6) AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"confkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"confrelid\" AND key_attribute.attnum = key_column.attnum) = ($7)::jsonb AND \"c\".\"confdeltype\" = $8 AND \"c\".\"confupdtype\" = $9)) AS \"result\"",
+        "params": [
+          "requests_approved_by_id_fkey",
+          "public",
+          "\"public\".\"requests\"",
+          "f",
+          "[\"approved_by_id\"]",
+          "\"public\".\"users\"",
+          "[\"id\"]",
+          "n",
+          "a"
+        ]
+      }
+    ]
+  }
+]

@@ -27,6 +27,7 @@ export const requestKeys = {
   lists: () => ["requests", "list"] as const,
   list: (f: RequestsFilter) => ["requests", "list", f] as const,
   detail: (id: string) => ["requests", "detail", id] as const,
+  stats: () => ["requests", "stats"] as const,
 };
 
 /**
@@ -75,13 +76,10 @@ export function useCreateRequest() {
   });
 }
 
+/** Staff edits. Status and progress are driven by the background workers. */
 export interface RequestUpdate {
   version: number;
-  status?: Status;
-  progress?: number;
-  currentStep?: string | null;
   priority?: Priority;
-  errorReason?: string;
   note?: string;
 }
 
@@ -105,6 +103,65 @@ export function useUpdateRequest(id: string) {
     onSuccess: store,
     // On a conflict (someone else changed it), load the latest version.
     onError: () => qc.invalidateQueries({ queryKey: requestKeys.detail(id) }),
+  });
+}
+
+/** Staff (not the submitter): approve a request; it is queued for a CPU. */
+export function useApproveRequest(id: string) {
+  const store = useStoreRequest();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { version: number }) =>
+      api<ServiceRequest>(`/requests/${encodeURIComponent(id)}/approve`, { method: "POST", body }),
+    onSuccess: store,
+    onError: () => qc.invalidateQueries({ queryKey: requestKeys.detail(id) }),
+  });
+}
+
+/** Staff (not the submitter): turn a request down, with a reason the submitter sees. */
+export function useRejectRequest(id: string) {
+  const store = useStoreRequest();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { version: number; reason: string }) =>
+      api<ServiceRequest>(`/requests/${encodeURIComponent(id)}/reject`, { method: "POST", body }),
+    onSuccess: store,
+    onError: () => qc.invalidateQueries({ queryKey: requestKeys.detail(id) }),
+  });
+}
+
+/** Staff: run a FAILED request again from the start. */
+export function useRetryRequest(id: string) {
+  const store = useStoreRequest();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { version: number }) =>
+      api<ServiceRequest>(`/requests/${encodeURIComponent(id)}/retry`, { method: "POST", body }),
+    onSuccess: store,
+    onError: () => qc.invalidateQueries({ queryKey: requestKeys.detail(id) }),
+  });
+}
+
+export interface QueueStats {
+  requests: Partial<Record<Status, number>>;
+  jobs: Partial<Record<"QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED", number>>;
+  workers: {
+    enabled: boolean;
+    concurrency: number;
+    busy: number;
+    slots: { name: string; requestId: string; attempt: number }[];
+  };
+}
+
+/**
+ * Staff: queue and worker activity. Lives under the requests key, so every
+ * pushed request change refreshes it too (no polling).
+ */
+export function useQueueStats(enabled: boolean) {
+  return useQuery({
+    queryKey: requestKeys.stats(),
+    queryFn: ({ signal }) => api<QueueStats>("/queue/stats", { signal }),
+    enabled,
   });
 }
 

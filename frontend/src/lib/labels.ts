@@ -24,11 +24,13 @@ export const PRIORITY_LABEL: Record<Priority, string> = {
 };
 
 export const STATUS_LABEL: Record<Status, string> = {
+  AWAITING_APPROVAL: "Awaiting approval",
   PENDING: "Pending",
   IN_PROGRESS: "In progress",
   COMPLETED: "Completed",
   FAILED: "Failed",
   CANCELLED: "Cancelled",
+  REJECTED: "Rejected",
 };
 
 export const ENVIRONMENT_LABEL: Record<Environment, string> = {

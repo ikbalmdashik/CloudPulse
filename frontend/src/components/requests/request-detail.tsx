@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, CpuIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -17,7 +17,7 @@ import { useMe } from "@/hooks/use-auth";
 import { useCancelRequest, useRequest } from "@/hooks/use-requests";
 import { ApiError } from "@/lib/api";
 import { CATEGORY_LABEL, ENVIRONMENT_LABEL, STATUS_LABEL } from "@/lib/labels";
-import { isFinal, isStaff, type RequestDetail, type RequestEvent } from "@/lib/types";
+import { isFinal, isStaff, type JobSummary, type RequestDetail, type RequestEvent } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -37,12 +37,68 @@ function Timeline({ events }: { events: RequestEvent[] }) {
           />
           <p className="text-sm">{e.message}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {e.actor ? `${e.actor.fullName} · ` : ""}
+            {e.actor ? `${e.actor.fullName} · ` : "System · "}
             <time dateTime={e.createdAt}>{fmt(e.createdAt)}</time>
           </p>
         </li>
       ))}
     </ol>
+  );
+}
+
+const JOB_STATUS: Record<JobSummary["status"], string> = {
+  QUEUED: "queued",
+  RUNNING: "running",
+  SUCCEEDED: "succeeded",
+  FAILED: "failed",
+  CANCELLED: "cancelled",
+};
+
+/** Which background worker has (or had) the request, and which attempt. */
+function ProcessingLine({ job, status }: { job: JobSummary; status: RequestDetail["status"] }) {
+  const attempt = `attempt ${job.attempt} of ${job.maxAttempts}`;
+  // The worker publishes a request's final status a moment before it closes
+  // its job, so for a finished request describe the job in the past tense.
+  const finished = isFinal(status);
+  const text =
+    status === "CANCELLED" && !job.startedAt
+      ? "Taken out of the queue before a worker started it"
+      : finished && job.workerId
+        ? `Processed by ${job.workerId} (${attempt})`
+        : job.status === "RUNNING"
+          ? `Being processed by ${job.workerId ?? "a CPU"} (${attempt})`
+          : job.status === "QUEUED"
+            ? `In the queue (${attempt})`
+            : `Last job ${JOB_STATUS[job.status]} (${attempt}${job.workerId ? `, ${job.workerId}` : ""})`;
+  const spinning = job.status === "RUNNING" && !finished;
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      {spinning ? (
+        <Loader2Icon className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <CpuIcon className="size-4" aria-hidden />
+      )}
+      {text}
+    </p>
+  );
+}
+
+const resultLabel = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+
+/** What the worker produced, e.g. the new VM's id and IP. */
+function ResultList({ result }: { result: NonNullable<RequestDetail["result"]> }) {
+  return (
+    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+      <p className="mb-2 font-medium">Result</p>
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
+        {Object.entries(result).map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-3 sm:block">
+            <dt className="text-muted-foreground">{resultLabel(k)}</dt>
+            <dd className="font-mono break-all">{String(v)}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
@@ -61,7 +117,8 @@ function SubmitterActions({ request }: { request: RequestDetail }) {
         </Button>
       </CardContent>
       <ReasonDialog
-        open={open}
+        // Closes by itself if the request finishes while the dialog is open.
+        open={open && !isFinal(request.status)}
         onOpenChange={setOpen}
         title="Cancel this request?"
         description="The operations team will stop working on it. This can't be undone."
@@ -123,6 +180,7 @@ export function RequestDetailView() {
   }
 
   const r = query.data;
+  const job = r.jobs?.[0];
   const staff = isStaff(me?.role);
   const mine = r.operatorId === me?.id;
   const done = isFinal(r.status);
@@ -147,8 +205,10 @@ export function RequestDetailView() {
                 {r.status === "IN_PROGRESS"
                   ? r.currentStep || "In progress"
                   : r.status === "PENDING"
-                    ? "Waiting for the operations team to pick it up"
-                    : STATUS_LABEL[r.status]}
+                    ? "Approved and queued: waiting for a free CPU"
+                    : r.status === "AWAITING_APPROVAL"
+                      ? "Waiting for approval from a supervisor or admin"
+                      : STATUS_LABEL[r.status]}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -156,6 +216,14 @@ export function RequestDetailView() {
                 <Progress value={r.progress} className="flex-1" aria-label={`${r.progress}% complete`} />
                 <span className="w-10 text-right text-sm tabular-nums">{r.progress}%</span>
               </div>
+              {job && <ProcessingLine job={job} status={r.status} />}
+              {r.status === "REJECTED" && r.errorReason && (
+                <Alert variant="destructive">
+                  <CircleAlertIcon />
+                  <AlertTitle>Rejected</AlertTitle>
+                  <AlertDescription>{r.errorReason}</AlertDescription>
+                </Alert>
+              )}
               {r.status === "FAILED" && r.errorReason && (
                 <Alert variant="destructive">
                   <CircleAlertIcon />
@@ -189,6 +257,16 @@ export function RequestDetailView() {
                   <dd>{fmt(r.createdAt)}</dd>
                 </div>
                 <div>
+                  <dt className="text-muted-foreground">Approved</dt>
+                  <dd>
+                    {r.approvedAt
+                      ? `${fmt(r.approvedAt)}${r.approvedBy ? ` by ${r.approvedBy.fullName}` : ""}`
+                      : r.status === "AWAITING_APPROVAL"
+                        ? "Not yet"
+                        : "—"}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-muted-foreground">Started</dt>
                   <dd>{fmt(r.startedAt)}</dd>
                 </div>
@@ -197,6 +275,7 @@ export function RequestDetailView() {
                   <dd>{fmt(r.completedAt)}</dd>
                 </div>
               </dl>
+              {r.status === "COMPLETED" && r.result && <ResultList result={r.result} />}
               {r.description && (
                 <div className="text-sm">
                   <p className="text-muted-foreground">Details</p>
@@ -218,10 +297,12 @@ export function RequestDetailView() {
         </div>
 
         <div className="space-y-6">
-          {/* key: reset the form fields whenever the request changes on the server */}
-          {staff && !done && <StaffControls key={r.version} request={r} />}
+          {/* Not keyed by version: workers change the request while staff may be typing a
+              note or have the cancel dialog open, and that must not reset. Actions always
+              send the latest version, which live updates keep current. */}
+          {staff && <StaffControls request={r} />}
           {!staff && mine && !done && <SubmitterActions request={r} />}
-          {done && (
+          {!staff && done && (
             <Card>
               <CardHeader>
                 <CardTitle>Finished</CardTitle>

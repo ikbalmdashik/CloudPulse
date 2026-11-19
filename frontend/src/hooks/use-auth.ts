@@ -16,7 +16,12 @@ export interface SavedAccount extends SessionUser {
 
 /** Drops cached data that belonged to the previous account (everything but the auth queries). */
 export function clearAccountData(qc: QueryClient) {
-  qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
+  // resetQueries, not removeQueries: removing a query that is on screen (e.g.
+  // the dashboard's queue panel during an account switch) leaves its component
+  // attached to a deleted query that never fetches again, so it shows a
+  // loading state until a reload. Resetting drops the old account's data the
+  // same way, and refetches what's on screen, now as the new account.
+  void qc.resetQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
 }
 
 /**
@@ -54,8 +59,8 @@ export function useLogin() {
 
 /** After a login or switch: drop the previous account's data, then tell the other tabs. */
 function becomeUser(qc: QueryClient, user: SessionUser) {
-  clearAccountData(qc);
   qc.setQueryData(meQueryKey, user);
+  clearAccountData(qc);
   void qc.invalidateQueries({ queryKey: accountsQueryKey });
   broadcastAuth({ type: "login", userId: user.id });
 }

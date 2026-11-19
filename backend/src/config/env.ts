@@ -37,6 +37,26 @@ const envSchema = z.object({
     .min(1, { error: 'must be 1-365 days' })
     .max(365, { error: 'must be 1-365 days' })
     .default(30),
+  /** Run the background worker pool in this process. Off in tests. */
+  WORKER_ENABLED: z
+    .enum(['true', 'false'], { error: 'must be true or false' })
+    .default('true')
+    .transform((v) => v === 'true'),
+  /** How many requests this process works on at the same time: its CPUs (CPU-1, CPU-2, …). */
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1, { error: 'must be 1-20' }).max(20, { error: 'must be 1-20' }).default(4),
+  /** How often idle workers look for queued jobs. New requests also wake them at once. */
+  WORKER_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(1000),
+  /** A running job's lease: if its worker stops renewing it for this long, the job is retried. */
+  WORKER_LEASE_SECONDS: z.coerce.number().int().min(5).max(600).default(30),
+  /** Attempts per request before it is marked FAILED. */
+  WORKER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  /** Average duration of one simulated processing step. */
+  WORKER_STEP_MS: z.coerce.number().int().min(0).max(60_000).default(2000),
+  /**
+   * Chance that one simulated step fails, to demonstrate retries (0 = never).
+   * Per step: with 5-6 steps, 0.03 fails about 15% of attempts.
+   */
+  WORKER_FAILURE_RATE: z.coerce.number().min(0, { error: 'must be 0-1' }).max(1, { error: 'must be 0-1' }).default(0.03),
   /** Browser origin allowed to open WebSocket connections. */
   FRONTEND_ORIGIN: z.url({ error: 'must be a URL such as http://localhost:3000' }).default('http://localhost:3000'),
 });

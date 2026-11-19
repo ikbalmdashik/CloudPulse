@@ -2,7 +2,7 @@
 
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SearchIcon } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { PriorityBadge, StatusBadge } from "@/components/requests/badges";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -23,6 +23,19 @@ const PAGE_SIZE = 15;
 const ALL = "ALL";
 const ACTIVE = "ACTIVE";
 type StatusFilter = Status | typeof ALL | typeof ACTIVE;
+
+/** A query-string value, if it is one of `allowed`. */
+function pick<T extends string>(value: string | null, allowed: readonly T[]): T | undefined {
+  return value && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+}
+
+/**
+ * Link to the requests list with a status filter applied, e.g. from the
+ * dashboard's queue panel: `/requests?status=PENDING`.
+ */
+export function requestsHref(status?: StatusFilter): string {
+  return !status || status === ACTIVE ? "/requests" : `/requests?status=${status}`;
+}
 
 const timeFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 function ago(iso: string) {
@@ -67,14 +80,36 @@ function FilterSelect<T extends string>({
 
 export function RequestsList() {
   const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
   const { data: me } = useMe();
   const staff = isStaff(me?.role);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<StatusFilter>(ACTIVE);
-  const [category, setCategory] = useState<Category | typeof ALL>(ALL);
-  const [priority, setPriority] = useState<Priority | typeof ALL>(ALL);
-  const [page, setPage] = useState(0);
   const debouncedSearch = useDebouncedValue(search.trim());
+
+  // Filters and page live in the URL (?status=PENDING&category=…&page=2), so
+  // links from elsewhere (the dashboard's queue panel) open the list already
+  // filtered, and Back/refresh/shared links keep the same view.
+  const status: StatusFilter = pick(params.get("status"), [ALL, ...STATUSES]) ?? ACTIVE;
+  const category: Category | typeof ALL = pick(params.get("category"), CATEGORIES) ?? ALL;
+  const priority: Priority | typeof ALL = pick(params.get("priority"), PRIORITIES) ?? ALL;
+  const page = Math.max(0, (Number.parseInt(params.get("page") ?? "1", 10) || 1) - 1);
+
+  /** Updates the query string. Any filter change goes back to page 1. */
+  const setQuery = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(changes)) {
+      if (v === null) next.delete(k);
+      else next.set(k, v);
+    }
+    if (!("page" in changes)) next.delete("page");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  const setStatus = (v: StatusFilter) => setQuery({ status: v === ACTIVE ? null : v });
+  const setCategory = (v: Category | typeof ALL) => setQuery({ category: v === ALL ? null : v });
+  const setPriority = (v: Priority | typeof ALL) => setQuery({ priority: v === ALL ? null : v });
+  const setPage = (p: number) => setQuery({ page: p === 0 ? null : String(p + 1) });
 
   const requests = useRequests({
     search: debouncedSearch || undefined,
@@ -85,10 +120,6 @@ export function RequestsList() {
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   });
-  const reset = <T,>(set: (v: T) => void) => (v: T) => {
-    set(v);
-    setPage(0);
-  };
 
   const total = requests.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -126,14 +157,17 @@ export function RequestsList() {
                 aria-label="Search requests by code or title"
                 className="pl-8"
                 value={search}
-                onChange={(e) => reset(setSearch)(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  if (page !== 0) setPage(0);
+                }}
               />
             </div>
             <div className="grid grid-cols-1 gap-2 sm:flex">
               <FilterSelect<StatusFilter>
                 label="Filter by status"
                 value={status}
-                onChange={reset(setStatus)}
+                onChange={setStatus}
                 options={[
                   { value: ACTIVE, label: "Active" },
                   { value: ALL, label: "All statuses" },
@@ -144,7 +178,7 @@ export function RequestsList() {
               <FilterSelect<Category | typeof ALL>
                 label="Filter by category"
                 value={category}
-                onChange={reset(setCategory)}
+                onChange={setCategory}
                 className="sm:w-44"
                 options={[
                   { value: ALL, label: "All categories" },
@@ -155,7 +189,7 @@ export function RequestsList() {
               <FilterSelect<Priority | typeof ALL>
                 label="Filter by priority"
                 value={priority}
-                onChange={reset(setPriority)}
+                onChange={setPriority}
                 options={[
                   { value: ALL, label: "All priorities" },
                   ...PRIORITIES.map((p) => ({ value: p as Priority | typeof ALL, label: PRIORITY_LABEL[p] })),
@@ -229,6 +263,9 @@ export function RequestsList() {
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={r.status} />
+                        {r.status === "IN_PROGRESS" && r.currentStep && (
+                          <div className="mt-1 max-w-40 truncate text-xs text-muted-foreground">{r.currentStep}</div>
+                        )}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
                         <div className="flex items-center gap-2">
@@ -261,13 +298,13 @@ export function RequestsList() {
                 Page {page + 1} of {pageCount}
               </span>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setPage((p) => p - 1)} disabled={page === 0} aria-label="Previous page">
+                <Button size="sm" variant="outline" onClick={() => setPage(page - 1)} disabled={page === 0} aria-label="Previous page">
                   <ChevronLeftIcon />
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setPage((p) => p + 1)}
+                  onClick={() => setPage(page + 1)}
                   disabled={page + 1 >= pageCount}
                   aria-label="Next page"
                 >

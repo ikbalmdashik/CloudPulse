@@ -1,37 +1,47 @@
 "use client";
 
-import { CheckIcon, Loader2Icon, PlayIcon, XIcon } from "lucide-react";
+import { CheckIcon, Loader2Icon, RotateCcwIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ReasonDialog } from "@/components/requests/reason-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { type RequestUpdate, useCancelRequest, useUpdateRequest } from "@/hooks/use-requests";
+import { useMe } from "@/hooks/use-auth";
+import {
+  type RequestUpdate,
+  useApproveRequest,
+  useCancelRequest,
+  useRejectRequest,
+  useRetryRequest,
+  useUpdateRequest,
+} from "@/hooks/use-requests";
 import { ApiError } from "@/lib/api";
 import { PRIORITY_LABEL } from "@/lib/labels";
-import { PRIORITIES, type Priority, type ServiceRequest } from "@/lib/types";
+import { isFinal, PRIORITIES, type Priority, type ServiceRequest } from "@/lib/types";
 
 const errorText = (err: unknown) => (err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
 
 /**
- * Supervisor/admin controls for one request. Every change sends the version
- * shown on screen; if someone else changed the request in the meantime, the
- * server refuses (409), the toast says so, and the latest version loads.
+ * Supervisor/admin controls for one request. A new request needs approval
+ * from a supervisor or admin who did not submit it; after that the CPUs drive
+ * status and progress, and staff steer them: priority (queue order), notes,
+ * cancel, and retry after a failure. Every change sends the version shown on
+ * screen; if the request changed meanwhile, the server refuses (409), the
+ * toast says so, and the latest version loads.
  */
 export function StaffControls({ request }: { request: ServiceRequest }) {
   const update = useUpdateRequest(request.id);
   const cancel = useCancelRequest(request.id);
-  const [dialog, setDialog] = useState<"fail" | "cancel" | null>(null);
-  // Local edits start from the live values; the key on this component (the
-  // version) resets them whenever the request changes on the server.
-  const [progress, setProgress] = useState(request.progress);
-  const [step, setStep] = useState(request.currentStep ?? "");
+  const retry = useRetryRequest(request.id);
+  const approve = useApproveRequest(request.id);
+  const reject = useRejectRequest(request.id);
+  const { data: me } = useMe();
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
   const [note, setNote] = useState("");
 
   const send = (change: Omit<RequestUpdate, "version">, success: string, after?: () => void) =>
@@ -46,104 +56,110 @@ export function StaffControls({ request }: { request: ServiceRequest }) {
       },
     );
 
-  const inProgress = request.status === "IN_PROGRESS";
-  const busy = update.isPending || cancel.isPending;
-  const progressChanged = progress !== request.progress || step.trim() !== (request.currentStep ?? "");
+  const finished = isFinal(request.status);
+  const awaiting = request.status === "AWAITING_APPROVAL";
+  // Four-eyes rule (enforced by the server too): nobody approves their own request.
+  const ownRequest = request.operatorId === me?.id;
+  const busy = update.isPending || cancel.isPending || retry.isPending || approve.isPending || reject.isPending;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Manage request</CardTitle>
-        <CardDescription>Changes are shown to the submitter and other staff instantly.</CardDescription>
+        <CardDescription>
+          {awaiting
+            ? "This request needs approval before a CPU starts on it."
+            : finished
+              ? "Changes are shown to the submitter and other staff instantly."
+              : "The CPUs process this automatically. You can reprioritise, add notes or cancel."}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="flex flex-wrap gap-2">
-          {request.status === "PENDING" && (
-            <Button onClick={() => send({ status: "IN_PROGRESS", currentStep: "Started" }, "Work started")} disabled={busy}>
-              {update.isPending ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
-              Start work
-            </Button>
-          )}
-          {inProgress && (
-            <>
-              <Button onClick={() => send({ status: "COMPLETED" }, "Marked as completed")} disabled={busy}>
-                <CheckIcon /> Complete
+        {awaiting &&
+          (ownRequest ? (
+            <div className="flex gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 text-sm">
+              <ShieldAlertIcon className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
+              <p>You submitted this request, so another supervisor or admin has to approve it.</p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() =>
+                  approve.mutate(
+                    { version: request.version },
+                    {
+                      onSuccess: () => toast.success("Approved: queued for processing"),
+                      onError: (err) => toast.error(errorText(err)),
+                    },
+                  )
+                }
+                disabled={busy}
+              >
+                {approve.isPending ? <Loader2Icon className="animate-spin" /> : <CheckIcon />}
+                Approve
               </Button>
-              <Button variant="outline" onClick={() => setDialog("fail")} disabled={busy}>
-                <XIcon /> Mark failed
+              <Button variant="outline" className="text-destructive" onClick={() => setRejectOpen(true)} disabled={busy}>
+                <XIcon /> Reject
               </Button>
-            </>
-          )}
-          <Button variant="ghost" className="text-destructive" onClick={() => setDialog("cancel")} disabled={busy}>
-            Cancel request
-          </Button>
-        </div>
+            </div>
+          ))}
 
-        {inProgress && (
-          <>
-            <Separator />
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                send({ progress, currentStep: step.trim() || null }, "Progress updated");
-              }}
+        {request.status === "FAILED" && (
+          <div className="space-y-2">
+            <Button
+              onClick={() =>
+                retry.mutate(
+                  { version: request.version },
+                  {
+                    onSuccess: () => toast.success("Queued again for processing"),
+                    onError: (err) => toast.error(errorText(err)),
+                  },
+                )
+              }
+              disabled={busy}
             >
-              <Field>
-                <div className="flex items-center justify-between">
-                  <FieldLabel htmlFor="progress">Progress</FieldLabel>
-                  <span className="text-sm tabular-nums text-muted-foreground">{progress}%</span>
-                </div>
-                <Slider
-                  id="progress"
-                  value={[progress]}
-                  min={0}
-                  max={100}
-                  step={5}
-                  onValueChange={(v) => setProgress(Array.isArray(v) ? v[0]! : v)}
-                  aria-label="Progress percentage"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="step">Current step</FieldLabel>
-                <Input
-                  id="step"
-                  value={step}
-                  maxLength={200}
-                  placeholder="e.g. Installing packages"
-                  onChange={(e) => setStep(e.target.value)}
-                />
-              </Field>
-              <Button type="submit" variant="secondary" disabled={busy || !progressChanged}>
-                Update progress
-              </Button>
-            </form>
+              {retry.isPending ? <Loader2Icon className="animate-spin" /> : <RotateCcwIcon />}
+              Retry request
+            </Button>
+            <p className="text-xs text-muted-foreground">Runs it again from the start, with a fresh set of attempts.</p>
+          </div>
+        )}
+
+        {!finished && (
+          <>
+            <Field>
+              <FieldLabel htmlFor="priority">Priority</FieldLabel>
+              <Select
+                value={request.priority}
+                onValueChange={(v) =>
+                  v &&
+                  v !== request.priority &&
+                  send({ priority: v as Priority }, `Priority set to ${PRIORITY_LABEL[v as Priority]}`)
+                }
+                disabled={busy}
+              >
+                <SelectTrigger id="priority" className="w-full sm:w-48">
+                  <SelectValue>{(v: Priority) => PRIORITY_LABEL[v]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITIES.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {PRIORITY_LABEL[p]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {request.status === "PENDING" && (
+                <FieldDescription>Higher priority requests are picked up first.</FieldDescription>
+              )}
+            </Field>
+            <Button variant="ghost" className="-ml-2 text-destructive" onClick={() => setCancelOpen(true)} disabled={busy}>
+              Cancel request
+            </Button>
           </>
         )}
 
         <Separator />
-        <Field>
-          <FieldLabel htmlFor="priority">Priority</FieldLabel>
-          <Select
-            value={request.priority}
-            onValueChange={(v) =>
-              v && v !== request.priority && send({ priority: v as Priority }, `Priority set to ${PRIORITY_LABEL[v as Priority]}`)
-            }
-            disabled={busy}
-          >
-            <SelectTrigger id="priority" className="w-full sm:w-48">
-              <SelectValue>{(v: Priority) => PRIORITY_LABEL[v]}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {PRIORITIES.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {PRIORITY_LABEL[p]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-
         <form
           className="space-y-2"
           onSubmit={(e) => {
@@ -162,22 +178,42 @@ export function StaffControls({ request }: { request: ServiceRequest }) {
       </CardContent>
 
       <ReasonDialog
-        open={dialog === "fail"}
-        onOpenChange={(o) => !o && setDialog(null)}
-        title="Mark this request as failed?"
-        description="The submitter will see the reason. Failed requests can't be reopened."
-        label="What went wrong"
-        confirmLabel="Mark failed"
+        // Closes by itself if someone else decides first.
+        open={rejectOpen && awaiting}
+        onOpenChange={setRejectOpen}
+        title="Reject this request?"
+        description="The submitter will see your reason. Rejected requests can't be reopened; they can submit a new one."
+        label="Reason"
+        confirmLabel="Reject request"
         required
         destructive
-        pending={update.isPending}
-        onConfirm={(reason) => send({ status: "FAILED", errorReason: reason }, "Marked as failed", () => setDialog(null))}
+        pending={reject.isPending}
+        onConfirm={(reason) =>
+          reject.mutate(
+            { version: request.version, reason },
+            {
+              onSuccess: () => {
+                toast.success("Request rejected");
+                setRejectOpen(false);
+              },
+              onError: (err) => {
+                toast.error(errorText(err));
+                setRejectOpen(false);
+              },
+            },
+          )
+        }
       />
       <ReasonDialog
-        open={dialog === "cancel"}
-        onOpenChange={(o) => !o && setDialog(null)}
+        // Closes by itself if the request finishes while the dialog is open.
+        open={cancelOpen && !finished}
+        onOpenChange={setCancelOpen}
         title="Cancel this request?"
-        description="Cancelled requests can't be reopened."
+        description={
+          request.status === "IN_PROGRESS"
+            ? "The CPU stops at its current step. Cancelled requests can't be reopened."
+            : "It will be taken out of the queue. Cancelled requests can't be reopened."
+        }
         label="Reason"
         confirmLabel="Cancel request"
         destructive
@@ -188,9 +224,12 @@ export function StaffControls({ request }: { request: ServiceRequest }) {
             {
               onSuccess: () => {
                 toast.success("Request cancelled");
-                setDialog(null);
+                setCancelOpen(false);
               },
-              onError: (err) => toast.error(errorText(err)),
+              onError: (err) => {
+                toast.error(errorText(err));
+                setCancelOpen(false);
+              },
             },
           )
         }

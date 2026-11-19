@@ -26,11 +26,16 @@ enum Priority {
 }
 
 enum RequestStatus {
+  // New requests wait here until a supervisor or admin (not the submitter) approves them.
+  AWAITING_APPROVAL
+  // Approved and queued for a CPU.
   PENDING
   IN_PROGRESS
   COMPLETED
   FAILED
   CANCELLED
+  // Turned down at approval.
+  REJECTED
 }
 
 enum JobStatus {
@@ -57,6 +62,7 @@ model User {
   updatedAt    temporal.UpdatedAt @map("updated_at")
 
   createdRequests Request[]      @relation("CreatedRequests")
+  approvedRequests Request[]     @relation("ApprovedRequests")
   handledLogs     RequestEvent[] @relation("ActorEvents")
   sessions        Session[]
 
@@ -90,7 +96,7 @@ model Request {
   description    String?
   category       ServiceCategory
   priority       Priority        @default(MEDIUM)
-  status         RequestStatus   @default(PENDING)
+  status         RequestStatus   @default(AWAITING_APPROVAL)
   progress       Int             @default(0)
   currentStep    String?         @map("current_step")
   payload        Jsonb?
@@ -101,6 +107,11 @@ model Request {
 
   operatorId String @map("operator_id")
   operator   User   @relation("CreatedRequests", fields: [operatorId], references: [id], onDelete: Restrict)
+
+  // Who approved it, and when. Never the submitter (enforced by the service).
+  approvedById String?   @map("approved_by_id")
+  approvedBy   User?     @relation("ApprovedRequests", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime? @map("approved_at")
 
   createdAt   temporal.CreatedAt @map("created_at")
   updatedAt   temporal.UpdatedAt @map("updated_at")

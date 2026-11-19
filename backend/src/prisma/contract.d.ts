@@ -23,7 +23,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'f42c904d49a2ef9a09d560527f5193165d01cb4236e7d55376ef53f8b425f6c0'>;
+  StorageHashBase<'2ca20c3836c601b2ffa8e683fc554b3a5c34e9745f9fb09801f4943311a77398'>;
 export type ExecutionHash =
   ExecutionHashBase<'27c141f9f158fa5e94cb6ff75537977d0b958afaae75396c1741ea43e2bbfb41'>;
 export type ProfileHash =
@@ -304,18 +304,60 @@ type FieldTypeOverrides = {
           readonly input: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
         };
         readonly status: {
-          readonly output: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-          readonly input: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+          readonly output:
+            | 'AWAITING_APPROVAL'
+            | 'PENDING'
+            | 'IN_PROGRESS'
+            | 'COMPLETED'
+            | 'FAILED'
+            | 'CANCELLED'
+            | 'REJECTED';
+          readonly input:
+            | 'AWAITING_APPROVAL'
+            | 'PENDING'
+            | 'IN_PROGRESS'
+            | 'COMPLETED'
+            | 'FAILED'
+            | 'CANCELLED'
+            | 'REJECTED';
         };
       };
       readonly RequestEvent: {
         readonly fromStatus: {
-          readonly output: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-          readonly input: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+          readonly output:
+            | 'AWAITING_APPROVAL'
+            | 'PENDING'
+            | 'IN_PROGRESS'
+            | 'COMPLETED'
+            | 'FAILED'
+            | 'CANCELLED'
+            | 'REJECTED';
+          readonly input:
+            | 'AWAITING_APPROVAL'
+            | 'PENDING'
+            | 'IN_PROGRESS'
+            | 'COMPLETED'
+            | 'FAILED'
+            | 'CANCELLED'
+            | 'REJECTED';
         };
         readonly toStatus: {
-          readonly output: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-          readonly input: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+          readonly output:
+            | 'AWAITING_APPROVAL'
+            | 'PENDING'
+            | 'IN_PROGRESS'
+            | 'COMPLETED'
+            | 'FAILED'
+            | 'CANCELLED'
+            | 'REJECTED';
+          readonly input:
+            | 'AWAITING_APPROVAL'
+            | 'PENDING'
+            | 'IN_PROGRESS'
+            | 'COMPLETED'
+            | 'FAILED'
+            | 'CANCELLED'
+            | 'REJECTED';
         };
       };
       readonly User: {
@@ -353,12 +395,40 @@ type ColumnTypeOverrides = {
     };
     readonly request_events: {
       readonly from_status: {
-        readonly output: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-        readonly input: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+        readonly output:
+          | 'AWAITING_APPROVAL'
+          | 'PENDING'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'FAILED'
+          | 'CANCELLED'
+          | 'REJECTED';
+        readonly input:
+          | 'AWAITING_APPROVAL'
+          | 'PENDING'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'FAILED'
+          | 'CANCELLED'
+          | 'REJECTED';
       };
       readonly to_status: {
-        readonly output: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-        readonly input: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+        readonly output:
+          | 'AWAITING_APPROVAL'
+          | 'PENDING'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'FAILED'
+          | 'CANCELLED'
+          | 'REJECTED';
+        readonly input:
+          | 'AWAITING_APPROVAL'
+          | 'PENDING'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'FAILED'
+          | 'CANCELLED'
+          | 'REJECTED';
       };
     };
     readonly requests: {
@@ -381,8 +451,22 @@ type ColumnTypeOverrides = {
         readonly input: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
       };
       readonly status: {
-        readonly output: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-        readonly input: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+        readonly output:
+          | 'AWAITING_APPROVAL'
+          | 'PENDING'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'FAILED'
+          | 'CANCELLED'
+          | 'REJECTED';
+        readonly input:
+          | 'AWAITING_APPROVAL'
+          | 'PENDING'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'FAILED'
+          | 'CANCELLED'
+          | 'REJECTED';
       };
     };
     readonly users: {
@@ -427,6 +511,8 @@ export namespace Models {
     readonly [RelationKeys]?: 'request';
   };
   export type public_Request = {
+    approvedAt: FieldOutputTypes['public']['Request']['approvedAt'];
+    approvedById: FieldOutputTypes['public']['Request']['approvedById'];
     cancelRequestedAt: FieldOutputTypes['public']['Request']['cancelRequestedAt'];
     category: FieldOutputTypes['public']['Request']['category'];
     code: FieldOutputTypes['public']['Request']['code'];
@@ -449,10 +535,11 @@ export namespace Models {
     title: FieldOutputTypes['public']['Request']['title'];
     updatedAt: FieldOutputTypes['public']['Request']['updatedAt'];
     version: FieldOutputTypes['public']['Request']['version'];
+    approvedBy: public_User | null;
     events: public_RequestEvent[];
     jobs: public_ExecutionJob[];
     operator: public_User;
-    readonly [RelationKeys]?: 'events' | 'jobs' | 'operator';
+    readonly [RelationKeys]?: 'approvedBy' | 'events' | 'jobs' | 'operator';
   };
   export type public_RequestEvent = {
     actorId: FieldOutputTypes['public']['RequestEvent']['actorId'];
@@ -492,10 +579,11 @@ export namespace Models {
     passwordHash: FieldOutputTypes['public']['User']['passwordHash'];
     role: FieldOutputTypes['public']['User']['role'];
     updatedAt: FieldOutputTypes['public']['User']['updatedAt'];
+    approvedRequests: public_Request[];
     createdRequests: public_Request[];
     handledLogs: public_RequestEvent[];
     sessions: public_Session[];
-    readonly [RelationKeys]?: 'createdRequests' | 'handledLogs' | 'sessions';
+    readonly [RelationKeys]?: 'approvedRequests' | 'createdRequests' | 'handledLogs' | 'sessions';
   };
 }
 
@@ -800,6 +888,19 @@ type ContractBase = Omit<
             };
             readonly requests: {
               columns: {
+                readonly approved_at: {
+                  readonly dataType: 'pg/timestamptz';
+                  readonly codecId: 'pg/timestamptz-date@1';
+                  readonly nullable: true;
+                  readonly typeParams: { readonly precision: 3 };
+                  readonly many: false;
+                };
+                readonly approved_by_id: {
+                  readonly dataType: 'pg/text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                  readonly many: false;
+                };
                 readonly cancel_requested_at: {
                   readonly dataType: 'pg/timestamptz';
                   readonly codecId: 'pg/timestamptz-date@1';
@@ -927,7 +1028,7 @@ type ContractBase = Omit<
                   readonly nullable: false;
                   readonly default: {
                     readonly kind: 'literal';
-                    readonly value: DefaultLiteralValue<'pg/text@1', 'PENDING'>;
+                    readonly value: DefaultLiteralValue<'pg/text@1', 'AWAITING_APPROVAL'>;
                   };
                   readonly many: false;
                 };
@@ -966,6 +1067,12 @@ type ContractBase = Omit<
                   readonly prefix: 'requests_active_queue';
                   readonly columns: readonly ['status', 'priority', 'created_at'];
                   readonly where: 'deleted_at IS NULL';
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'requests_approved_by_id_idx_0d5fa022';
+                  readonly prefix: 'requests_approved_by_id_idx';
+                  readonly columns: readonly ['approved_by_id'];
                   readonly unique: false;
                 },
                 {
@@ -1009,6 +1116,18 @@ type ContractBase = Omit<
                     readonly namespaceId: 'public' & NamespaceId;
                     readonly tableName: 'requests';
                     readonly columns: readonly ['operator_id'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'users';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'requests';
+                    readonly columns: readonly ['approved_by_id'];
                   };
                   readonly target: {
                     readonly namespaceId: 'public' & NamespaceId;
@@ -1206,11 +1325,13 @@ type ContractBase = Omit<
             readonly RequestStatus: {
               readonly kind: 'valueSet';
               readonly values: readonly [
+                'AWAITING_APPROVAL',
                 'PENDING',
                 'IN_PROGRESS',
                 'COMPLETED',
                 'FAILED',
                 'CANCELLED',
+                'REJECTED',
               ];
             };
             readonly Role: {
@@ -1361,6 +1482,18 @@ type ContractBase = Omit<
           };
           readonly Request: {
             readonly fields: {
+              readonly approvedAt: {
+                readonly nullable: true;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-date@1';
+                  readonly typeParams: { readonly precision: 3 };
+                };
+              };
+              readonly approvedById: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
               readonly cancelRequestedAt: {
                 readonly nullable: true;
                 readonly type: {
@@ -1475,6 +1608,15 @@ type ContractBase = Omit<
               };
             };
             readonly relations: {
+              readonly approvedBy: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['approvedById'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
               readonly events: {
                 readonly to: {
                   readonly namespace: 'public' & NamespaceId;
@@ -1511,6 +1653,8 @@ type ContractBase = Omit<
               readonly table: 'requests';
               readonly namespaceId: 'public';
               readonly fields: {
+                readonly approvedAt: { readonly column: 'approved_at' };
+                readonly approvedById: { readonly column: 'approved_by_id' };
                 readonly cancelRequestedAt: { readonly column: 'cancel_requested_at' };
                 readonly category: { readonly column: 'category' };
                 readonly code: { readonly column: 'code' };
@@ -1753,6 +1897,17 @@ type ContractBase = Omit<
               };
             };
             readonly relations: {
+              readonly approvedRequests: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Request';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['approvedById'];
+                };
+              };
               readonly createdRequests: {
                 readonly to: {
                   readonly namespace: 'public' & NamespaceId;
@@ -1827,11 +1982,13 @@ type ContractBase = Omit<
           readonly RequestStatus: {
             readonly codecId: 'pg/text@1';
             readonly members: readonly [
+              { readonly name: 'AWAITING_APPROVAL'; readonly value: 'AWAITING_APPROVAL' },
               { readonly name: 'PENDING'; readonly value: 'PENDING' },
               { readonly name: 'IN_PROGRESS'; readonly value: 'IN_PROGRESS' },
               { readonly name: 'COMPLETED'; readonly value: 'COMPLETED' },
               { readonly name: 'FAILED'; readonly value: 'FAILED' },
               { readonly name: 'CANCELLED'; readonly value: 'CANCELLED' },
+              { readonly name: 'REJECTED'; readonly value: 'REJECTED' },
             ];
           };
           readonly Role: {
@@ -1868,11 +2025,13 @@ type ContractBase = Omit<
             { readonly name: 'CRITICAL'; readonly value: 'CRITICAL' },
           ];
           readonly RequestStatus: readonly [
+            { readonly name: 'AWAITING_APPROVAL'; readonly value: 'AWAITING_APPROVAL' },
             { readonly name: 'PENDING'; readonly value: 'PENDING' },
             { readonly name: 'IN_PROGRESS'; readonly value: 'IN_PROGRESS' },
             { readonly name: 'COMPLETED'; readonly value: 'COMPLETED' },
             { readonly name: 'FAILED'; readonly value: 'FAILED' },
             { readonly name: 'CANCELLED'; readonly value: 'CANCELLED' },
+            { readonly name: 'REJECTED'; readonly value: 'REJECTED' },
           ];
           readonly Role: readonly [
             { readonly name: 'OPERATOR'; readonly value: 'OPERATOR' },

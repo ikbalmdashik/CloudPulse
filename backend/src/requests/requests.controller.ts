@@ -16,6 +16,8 @@ import type { Response } from 'express';
 import type { AuthUser } from '../auth/auth-user.js';
 import { CurrentUser, Roles } from '../auth/decorators.js';
 import {
+  type ApproveRequestDto,
+  approveRequestSchema,
   type CancelRequestDto,
   cancelRequestSchema,
   type CreateRequestDto,
@@ -23,6 +25,10 @@ import {
   idempotencyKeySchema,
   type ListRequestsQuery,
   listRequestsQuerySchema,
+  type RejectRequestDto,
+  rejectRequestSchema,
+  type RetryRequestDto,
+  retryRequestSchema,
   type UpdateRequestDto,
   updateRequestSchema,
 } from './dto/request.schemas.js';
@@ -72,9 +78,10 @@ export class RequestsController {
   }
 
   /**
-   * PATCH /requests/:id — change status, progress, current step or priority, or add a note.
-   * Supervisors and admins only. Send the `version` you loaded.
-   * 200 · 400 · 403 · 404 · 409 invalid transition or changed by someone else
+   * PATCH /requests/:id — change the priority (moves it in the queue) and/or add a note.
+   * Supervisors and admins only. Send the `version` you loaded. Status and
+   * progress are driven by the background workers.
+   * 200 · 400 · 403 · 404 · 409 finished, or changed by someone else
    */
   @Roles('SUPERVISOR', 'ADMIN')
   @Patch(':id')
@@ -84,6 +91,52 @@ export class RequestsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.requests.update(id, dto, user);
+  }
+
+  /**
+   * POST /requests/:id/approve — approve a request awaiting approval; it is queued for a CPU.
+   * Supervisors and admins, but never for a request they submitted themselves.
+   * 200 · 403 own request · 404 · 409 not awaiting approval, or changed meanwhile
+   */
+  @Roles('SUPERVISOR', 'ADMIN')
+  @Post(':id/approve')
+  @HttpCode(HttpStatus.OK)
+  approve(
+    @Param('id') id: string,
+    @Body({ schema: approveRequestSchema }) dto: ApproveRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.requests.approve(id, dto, user);
+  }
+
+  /**
+   * POST /requests/:id/reject — turn a request down; `reason` is required and shown to the submitter.
+   * Supervisors and admins, not for their own requests. 200 · 400 · 403 · 404 · 409
+   */
+  @Roles('SUPERVISOR', 'ADMIN')
+  @Post(':id/reject')
+  @HttpCode(HttpStatus.OK)
+  reject(
+    @Param('id') id: string,
+    @Body({ schema: rejectRequestSchema }) dto: RejectRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.requests.reject(id, dto, user);
+  }
+
+  /**
+   * POST /requests/:id/retry — run a FAILED request again from the start.
+   * Supervisors and admins only. 200 · 403 · 404 · 409 not FAILED, or changed meanwhile
+   */
+  @Roles('SUPERVISOR', 'ADMIN')
+  @Post(':id/retry')
+  @HttpCode(HttpStatus.OK)
+  retry(
+    @Param('id') id: string,
+    @Body({ schema: retryRequestSchema }) dto: RetryRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.requests.retry(id, dto, user);
   }
 
   /**
