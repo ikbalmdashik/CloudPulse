@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRightIcon, CheckIcon, EyeIcon, ShieldCheckIcon, SendIcon } from "lucide-react";
+import { ArrowRightIcon, CheckIcon, EyeIcon, PencilIcon, SendIcon, ShieldCheckIcon } from "lucide-react";
 import Link from "next/link";
 import { RoleBadge } from "@/components/role-badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -16,11 +16,12 @@ const ABILITIES: Record<Role, { icon: React.ComponentType<{ className?: string }
   ],
   SUPERVISOR: [
     { icon: EyeIcon, text: "Monitor every request as it is processed, in real time" },
+    { icon: PencilIcon, text: "Move requests along: start, update progress, complete, fail or cancel" },
     { icon: SendIcon, text: "Submit service requests" },
   ],
   ADMIN: [
-    { icon: ShieldCheckIcon, text: "Manage users and promote operators to supervisors" },
-    { icon: EyeIcon, text: "Monitor every request in real time" },
+    { icon: ShieldCheckIcon, text: "Manage users: promote operators to supervisors, or demote them" },
+    { icon: PencilIcon, text: "Monitor and manage every request in real time" },
   ],
 };
 
@@ -61,6 +62,14 @@ export function Dashboard() {
                 </li>
               ))}
             </ul>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Link href="/requests/new" className={buttonVariants({ size: "sm" })}>
+                New request
+              </Link>
+              <Link href="/requests" className={buttonVariants({ size: "sm", variant: "outline" })}>
+                {user.role === "OPERATOR" ? "My requests" : "All requests"} <ArrowRightIcon />
+              </Link>
+            </div>
           </CardContent>
         </Card>
 

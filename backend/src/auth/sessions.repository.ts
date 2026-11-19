@@ -4,47 +4,63 @@ import type { Db } from '../prisma/db.js';
 
 export interface NewSession {
   userId: string;
-  tokenHash: string;
+  refreshTokenHash: string;
   expiresAt: Date;
+  remember: boolean;
   userAgent?: string;
   ipAddress?: string;
 }
 
-/** Data-access layer for login sessions (`sessions` table). */
+/**
+ * Data-access layer for login sessions (`sessions` table). A session is the
+ * server-side half of a login: it holds the hash of the current refresh token,
+ * so it can be revoked (logout) or rotated (refresh).
+ */
 @Injectable()
 export class SessionsRepository {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async create(s: NewSession) {
-    return await this.db.orm.public.Session.select('id', 'expiresAt').create({
+    return await this.db.orm.public.Session.select('id', 'expiresAt', 'remember').create({
       userId: s.userId,
-      // The column is named refresh_token_hash in the schema; it stores the
-      // SHA-256 of the session's bearer token.
-      refreshTokenHash: s.tokenHash,
+      refreshTokenHash: s.refreshTokenHash,
       expiresAt: s.expiresAt,
+      remember: s.remember,
       userAgent: s.userAgent ?? null,
       ipAddress: s.ipAddress ?? null,
     });
   }
 
-  /** The session for this token hash with its user, if it is unrevoked and unexpired. */
-  async findActive(tokenHash: string, now: Date) {
-    return await this.db.orm.public.Session.select('id')
-      .where((s) => s.refreshTokenHash.eq(tokenHash))
+  /** The unrevoked, unexpired session holding this refresh token, with its user. */
+  async findActiveByRefreshHash(refreshTokenHash: string, now: Date) {
+    return await this.db.orm.public.Session.select('id', 'expiresAt', 'refreshTokenHash', 'remember')
+      .where((s) => s.refreshTokenHash.eq(refreshTokenHash))
       .where((s) => s.revokedAt.isNull())
       .where((s) => s.expiresAt.gt(now))
       .include('user', (u) => u.select('id', 'email', 'fullName', 'role', 'isActive'))
       .first();
   }
 
-  async revokeByTokenHash(tokenHash: string): Promise<void> {
-    await this.db.orm.public.Session.where((s) => s.refreshTokenHash.eq(tokenHash))
+  /**
+   * Swaps the refresh token, but only if it is still `currentHash`. If two
+   * requests race to refresh with the same token, only one wins; the other
+   * gets null (and a 401), so a stolen-and-replayed token can't be reused.
+   */
+  async rotate(id: string, currentHash: string, nextHash: string): Promise<boolean> {
+    const n = await this.db.orm.public.Session.where({ id, refreshTokenHash: currentHash })
       .where((s) => s.revokedAt.isNull())
-      .updateAndCount({ revokedAt: new Date() });
+      .updateAndCount({ refreshTokenHash: nextHash });
+    return n > 0;
   }
 
   async revoke(id: string): Promise<void> {
     await this.db.orm.public.Session.where({ id })
+      .where((s) => s.revokedAt.isNull())
+      .updateAndCount({ revokedAt: new Date() });
+  }
+
+  async revokeByRefreshHash(refreshTokenHash: string): Promise<void> {
+    await this.db.orm.public.Session.where((s) => s.refreshTokenHash.eq(refreshTokenHash))
       .where((s) => s.revokedAt.isNull())
       .updateAndCount({ revokedAt: new Date() });
   }

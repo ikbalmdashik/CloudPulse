@@ -1,0 +1,283 @@
+"use client";
+
+import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SearchIcon } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { PriorityBadge, StatusBadge } from "@/components/requests/badges";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useMe } from "@/hooks/use-auth";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useRequests } from "@/hooks/use-requests";
+import { CATEGORY_LABEL, PRIORITY_LABEL, STATUS_LABEL } from "@/lib/labels";
+import { CATEGORIES, type Category, isStaff, PRIORITIES, type Priority, STATUSES, type Status } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 15;
+const ALL = "ALL";
+const ACTIVE = "ACTIVE";
+type StatusFilter = Status | typeof ALL | typeof ACTIVE;
+
+const timeFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+function ago(iso: string) {
+  const s = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
+  const abs = Math.abs(s);
+  if (abs < 60) return timeFmt.format(Math.round(s), "second");
+  if (abs < 3600) return timeFmt.format(Math.round(s / 60), "minute");
+  if (abs < 86400) return timeFmt.format(Math.round(s / 3600), "hour");
+  return timeFmt.format(Math.round(s / 86400), "day");
+}
+
+function FilterSelect<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  render,
+  className,
+}: {
+  label: string;
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  render: (v: T) => string;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => v && onChange(v as T)}>
+      <SelectTrigger className={cn("w-full sm:w-40", className)} aria-label={label}>
+        <SelectValue>{(v: T) => render(v)}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function RequestsList() {
+  const router = useRouter();
+  const { data: me } = useMe();
+  const staff = isStaff(me?.role);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<StatusFilter>(ACTIVE);
+  const [category, setCategory] = useState<Category | typeof ALL>(ALL);
+  const [priority, setPriority] = useState<Priority | typeof ALL>(ALL);
+  const [page, setPage] = useState(0);
+  const debouncedSearch = useDebouncedValue(search.trim());
+
+  const requests = useRequests({
+    search: debouncedSearch || undefined,
+    status: status === ALL || status === ACTIVE ? undefined : status,
+    active: status === ACTIVE || undefined,
+    category: category === ALL ? undefined : category,
+    priority: priority === ALL ? undefined : priority,
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+  });
+  const reset = <T,>(set: (v: T) => void) => (v: T) => {
+    set(v);
+    setPage(0);
+  };
+
+  const total = requests.data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{staff ? "All requests" : "My requests"}</h1>
+          <p className="text-sm text-muted-foreground">
+            {staff
+              ? "Every request from every operator. Changes appear here the moment they happen."
+              : "Requests you've submitted. Status and progress update live."}
+          </p>
+        </div>
+        <Link href="/requests/new" className={buttonVariants()}>
+          <PlusIcon /> New request
+        </Link>
+      </div>
+
+      <Card>
+        <CardHeader className="gap-4">
+          <div>
+            <CardTitle>Requests</CardTitle>
+            <CardDescription aria-live="polite">
+              {requests.isPending ? "Loading…" : `${total} ${total === 1 ? "request" : "requests"}`}
+            </CardDescription>
+          </div>
+          <div className="flex flex-col gap-2 lg:flex-row">
+            <div className="relative lg:max-w-xs lg:flex-1">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search code or title"
+                aria-label="Search requests by code or title"
+                className="pl-8"
+                value={search}
+                onChange={(e) => reset(setSearch)(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:flex">
+              <FilterSelect<StatusFilter>
+                label="Filter by status"
+                value={status}
+                onChange={reset(setStatus)}
+                options={[
+                  { value: ACTIVE, label: "Active" },
+                  { value: ALL, label: "All statuses" },
+                  ...STATUSES.map((s) => ({ value: s as StatusFilter, label: STATUS_LABEL[s] })),
+                ]}
+                render={(v) => (v === ACTIVE ? "Active" : v === ALL ? "All statuses" : STATUS_LABEL[v])}
+              />
+              <FilterSelect<Category | typeof ALL>
+                label="Filter by category"
+                value={category}
+                onChange={reset(setCategory)}
+                className="sm:w-44"
+                options={[
+                  { value: ALL, label: "All categories" },
+                  ...CATEGORIES.map((c) => ({ value: c as Category | typeof ALL, label: CATEGORY_LABEL[c] })),
+                ]}
+                render={(v) => (v === ALL ? "All categories" : CATEGORY_LABEL[v])}
+              />
+              <FilterSelect<Priority | typeof ALL>
+                label="Filter by priority"
+                value={priority}
+                onChange={reset(setPriority)}
+                options={[
+                  { value: ALL, label: "All priorities" },
+                  ...PRIORITIES.map((p) => ({ value: p as Priority | typeof ALL, label: PRIORITY_LABEL[p] })),
+                ]}
+                render={(v) => (v === ALL ? "All priorities" : PRIORITY_LABEL[v])}
+              />
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="px-0">
+          {requests.isError ? (
+            <div className="px-6 py-8 text-center text-sm">
+              <p className="font-medium">Couldn&apos;t load requests.</p>
+              <p className="mt-1 text-muted-foreground">{requests.error.message}</p>
+              <Button className="mt-4" variant="outline" size="sm" onClick={() => requests.refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6">Request</TableHead>
+                    <TableHead className="hidden md:table-cell">Priority</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="hidden w-40 lg:table-cell">Progress</TableHead>
+                    {staff && <TableHead className="hidden xl:table-cell">Submitted by</TableHead>}
+                    <TableHead className="hidden pr-6 sm:table-cell">Updated</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className={requests.isPlaceholderData ? "opacity-60 transition-opacity" : undefined}>
+                  {requests.isPending &&
+                    Array.from({ length: 4 }, (_, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="pl-6" colSpan={6}>
+                          <Skeleton className="h-8 w-full" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  {requests.data?.items.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                        {status === ACTIVE && !debouncedSearch && category === ALL && priority === ALL
+                          ? "No active requests right now."
+                          : "No requests match these filters."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {requests.data?.items.map((r) => (
+                    <TableRow
+                      key={r.id}
+                      className="cursor-pointer"
+                      onClick={() => router.push(`/requests/${r.id}`)}
+                    >
+                      <TableCell className="max-w-0 pl-6 sm:max-w-none">
+                        <Link
+                          href={`/requests/${r.id}`}
+                          className="block truncate font-medium hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {r.title}
+                        </Link>
+                        <div className="truncate font-mono text-xs text-muted-foreground">
+                          {r.code} · {CATEGORY_LABEL[r.category]}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <PriorityBadge priority={r.priority} />
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={r.status} />
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <div className="flex items-center gap-2">
+                          <Progress value={r.progress} className="w-24" aria-label={`${r.progress}% complete`} />
+                          <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">
+                            {r.progress}%
+                          </span>
+                        </div>
+                      </TableCell>
+                      {staff && (
+                        <TableCell className="hidden text-muted-foreground xl:table-cell">
+                          {r.operator?.fullName ?? "—"}
+                        </TableCell>
+                      )}
+                      <TableCell className="hidden pr-6 text-muted-foreground sm:table-cell">
+                        <time dateTime={r.updatedAt} title={new Date(r.updatedAt).toLocaleString()}>
+                          {ago(r.updatedAt)}
+                        </time>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {total > PAGE_SIZE && (
+            <div className="flex items-center justify-between gap-2 border-t px-6 pt-4 text-sm">
+              <span className="text-muted-foreground">
+                Page {page + 1} of {pageCount}
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPage((p) => p - 1)} disabled={page === 0} aria-label="Previous page">
+                  <ChevronLeftIcon />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page + 1 >= pageCount}
+                  aria-label="Next page"
+                >
+                  <ChevronRightIcon />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

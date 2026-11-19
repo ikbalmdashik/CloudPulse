@@ -5,6 +5,8 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { validateEnv } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
+import { RequestsModule } from './requests/requests.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -13,6 +15,8 @@ import { UsersModule } from './users/users.module.js';
     DatabaseModule,
     UsersModule,
     AuthModule,
+    RealtimeModule,
+    RequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { CATEGORIES, ENVIRONMENTS, PRIORITIES } from "./types";
 
 /*
  * Client-side form rules. They mirror the backend's zod schemas
@@ -9,6 +10,8 @@ import * as z from "zod";
 export const loginFormSchema = z.object({
   email: z.string().trim().min(1, { error: "Enter your email" }),
   password: z.string().min(1, { error: "Enter your password" }),
+  /** Stay signed in on this device across browser restarts (backend: REMEMBER_ME_DAYS). */
+  rememberMe: z.boolean(),
 });
 export type LoginForm = z.infer<typeof loginFormSchema>;
 
@@ -37,3 +40,22 @@ export const registerFormSchema = z
     error: "Passwords don't match",
   });
 export type RegisterForm = z.infer<typeof registerFormSchema>;
+
+/** Mirrors backend/src/requests/dto/request.schemas.ts (createRequestSchema). */
+export const newRequestFormSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(3, { error: "Use at least 3 characters" })
+    .max(120, { error: "Use at most 120 characters" }),
+  description: z.string().trim().max(2000, { error: "Use at most 2000 characters" }),
+  category: z.enum(CATEGORIES, { error: "Choose a category" }),
+  priority: z.enum(PRIORITIES, { error: "Choose a priority" }),
+  environment: z.enum(ENVIRONMENTS, { error: "Choose an environment" }),
+  target: z
+    .string()
+    .trim()
+    .min(1, { error: "Name the host, service or account" })
+    .max(200, { error: "Use at most 200 characters" }),
+});
+export type NewRequestForm = z.infer<typeof newRequestFormSchema>;

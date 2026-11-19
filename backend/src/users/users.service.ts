@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger, NotFoundException } from '@nestj
 import type { CreateUserDto } from './dto/create-user.schema.js';
 import type { ListUsersQuery } from './dto/list-users.schema.js';
 import { ROLE_TRANSITIONS, type UpdateRoleDto } from './dto/update-role.schema.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { hashPassword } from './password.js';
 import { EmailAlreadyExistsError, type PublicUser, UsersRepository } from './users.repository.js';
 
@@ -10,7 +11,10 @@ import { EmailAlreadyExistsError, type PublicUser, UsersRepository } from './use
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly users: UsersRepository) {}
+  constructor(
+    private readonly users: UsersRepository,
+    private readonly realtime: RealtimeService,
+  ) {}
 
   /** Registers a new user. Every new user starts as an OPERATOR. */
   async create(dto: CreateUserDto): Promise<PublicUser> {
@@ -45,6 +49,8 @@ export class UsersService {
     const updated = await this.users.changeRoleIf(id, from, dto.role);
     if (updated) {
       this.logger.log(`User ${actorId} changed role of ${id} from ${from} to ${dto.role}`);
+      // Their open tabs get a fresh token now, and their live feed follows the new role.
+      this.realtime.userRoleChanged(id);
       return updated;
     }
 

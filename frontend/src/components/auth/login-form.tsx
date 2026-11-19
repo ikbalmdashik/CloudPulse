@@ -4,11 +4,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { CircleAlertIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useLogin } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
@@ -21,11 +22,12 @@ export function LoginForm() {
   const login = useLogin();
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginFormSchema),
-    defaultValues: { email: params.get("email") ?? "", password: "" },
+    defaultValues: { email: params.get("email") ?? "", password: "", rememberMe: false },
   });
 
   const onSubmit = handleSubmit((values) =>
@@ -83,6 +85,30 @@ export function LoginForm() {
               />
               <FieldError errors={[errors.password]} />
             </Field>
+            <Controller
+              control={control}
+              name="rememberMe"
+              render={({ field }) => (
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="rememberMe"
+                    checked={field.value}
+                    onCheckedChange={(checked) => field.onChange(checked === true)}
+                    aria-describedby="rememberMe-hint"
+                  />
+                  <div className="grid gap-1 leading-none">
+                    <FieldLabel htmlFor="rememberMe" className="font-normal">
+                      Remember me
+                    </FieldLabel>
+                    <FieldDescription id="rememberMe-hint" className="text-xs">
+                      {field.value
+                        ? "Stay signed in on this device for 30 days. Don't use this on a shared computer."
+                        : "You'll be signed out when you close the browser."}
+                    </FieldDescription>
+                  </div>
+                </Field>
+              )}
+            />
           </FieldGroup>
         </CardContent>
         <CardFooter className="mt-6 flex-col gap-3">

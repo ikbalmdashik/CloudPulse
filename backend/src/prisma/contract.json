@@ -836,6 +836,13 @@
                   "kind": "scalar"
                 }
               },
+              "remember": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
               "revokedAt": {
                 "nullable": true,
                 "type": {
@@ -895,6 +902,9 @@
                 },
                 "refreshTokenHash": {
                   "column": "refresh_token_hash"
+                },
+                "remember": {
+                  "column": "remember"
                 },
                 "revokedAt": {
                   "column": "revoked_at"
@@ -1768,6 +1778,15 @@
                   "dataType": "pg/text",
                   "nullable": false
                 },
+                "remember": {
+                  "codecId": "pg/bool@1",
+                  "dataType": "pg/bool",
+                  "default": {
+                    "kind": "literal",
+                    "value": false
+                  },
+                  "nullable": false
+                },
                 "revoked_at": {
                   "codecId": "pg/timestamptz-date@1",
                   "dataType": "pg/timestamptz",
@@ -1999,7 +2018,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "67c67e3b38b12fed938cc526516f69895e2811ecbce7b2438fb5505d620c971b"
+    "storageHash": "f42c904d49a2ef9a09d560527f5193165d01cb4236e7d55376ef53f8b425f6c0"
   },
   "execution": {
     "executionHash": "27c141f9f158fa5e94cb6ff75537977d0b958afaae75396c1741ea43e2bbfb41",

@@ -1,15 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-/** Must match the backend's cookie name (backend/src/auth/session-cookie.ts). */
-const SESSION_COOKIE = "cp_session";
+/** Lists the accounts saved in this browser (backend/src/auth/session-cookie.ts). */
+const SESSION_COOKIE = "cp_accounts";
 const PUBLIC_PAGES = ["/login", "/register"];
 
 /**
  * Optimistic check only: with no session cookie at all, skip rendering the app
  * and go straight to /login. It does not check that the cookie is valid —
  * the backend checks every request, and the app shell redirects on a 401.
- * (Signed-in visitors on /login are sent home by the page itself, once the
- * backend confirms the session, so an expired cookie can't cause a loop.)
+ * Auth pages are never redirected, so an expired cookie can't cause a loop.
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

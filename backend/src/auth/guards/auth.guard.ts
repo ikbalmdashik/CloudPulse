@@ -1,14 +1,15 @@
 import { type CanActivate, type ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { AuthService } from '../auth.service.js';
 import { IS_PUBLIC_KEY } from '../decorators.js';
-import { readSessionToken, SESSION_COOKIE } from '../session-cookie.js';
+import { readAccessToken } from '../session-cookie.js';
 
 /**
- * Global guard: every route needs a session (bearer token or `cp_session`
- * cookie) unless it is marked `@Public()`. Secure by default — a new route
- * can't be left open by accident.
+ * Global guard: every route needs a valid access token (JWT, from the
+ * `cp_access` cookie or a Bearer header) unless it is marked `@Public()`.
+ * Secure by default — a new route can't be left open by accident. Verifying
+ * the JWT needs no database query.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -25,17 +26,12 @@ export class AuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const req = ctx.switchToHttp().getRequest<Request>();
-    const token = readSessionToken(req);
+    const token = readAccessToken(req);
     if (!token) throw new UnauthorizedException('Not logged in');
 
-    const user = await this.auth.authenticate(token);
-    if (!user) {
-      // Drop a dead cookie so the browser stops presenting it.
-      if (!req.headers.authorization && req.headers.cookie?.includes(SESSION_COOKIE)) {
-        ctx.switchToHttp().getResponse<Response>().clearCookie(SESSION_COOKIE, { path: '/' });
-      }
-      throw new UnauthorizedException('Invalid or expired session');
-    }
+    const user = await this.auth.verifyAccessToken(token);
+    // The browser answers this by calling POST /auth/refresh and retrying.
+    if (!user) throw new UnauthorizedException('Access token is invalid or expired');
     req.user = user;
     return true;
   }

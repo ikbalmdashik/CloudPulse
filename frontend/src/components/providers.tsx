@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { clearAccountData, meQueryKey } from "@/hooks/use-auth";
+import { accountsQueryKey, clearAccountData, meQueryKey } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
 import { onAuthBroadcast } from "@/lib/auth-sync";
 import type { SessionUser } from "@/lib/types";
@@ -39,13 +39,14 @@ function useAuthSync(qc: QueryClient) {
       onAuthBroadcast((event) => {
         const current = qc.getQueryData<SessionUser | null>(meQueryKey);
         clearAccountData(qc);
+        void qc.invalidateQueries({ queryKey: accountsQueryKey });
         if (event.type === "logout") {
           // The app shell sees null and goes to /login.
           if (current) toast.info("You logged out in another tab.");
           qc.setQueryData(meQueryKey, null);
         } else {
           // Ask the server who we are now, rather than trusting the message.
-          if (current && current.id !== event.userId) toast.info("You signed in as another account in another tab.");
+          if (current && current.id !== event.userId) toast.info("You switched accounts in another tab.");
           void qc.invalidateQueries({ queryKey: meQueryKey });
         }
       }),

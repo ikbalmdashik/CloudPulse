@@ -1,0 +1,102 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import type { AuthUser } from '../auth/auth-user.js';
+import { CurrentUser, Roles } from '../auth/decorators.js';
+import {
+  type CancelRequestDto,
+  cancelRequestSchema,
+  type CreateRequestDto,
+  createRequestSchema,
+  idempotencyKeySchema,
+  type ListRequestsQuery,
+  listRequestsQuerySchema,
+  type UpdateRequestDto,
+  updateRequestSchema,
+} from './dto/request.schemas.js';
+import { RequestsService } from './requests.service.js';
+
+/**
+ * HTTP layer for service requests. Every route needs a signed-in user;
+ * `@Roles` on the class makes RolesGuard load the user's current role from the
+ * database, so access follows promotions and demotions immediately.
+ */
+@Roles('OPERATOR', 'SUPERVISOR', 'ADMIN')
+@Controller('requests')
+export class RequestsController {
+  constructor(private readonly requests: RequestsService) {}
+
+  /**
+   * POST /requests — submit a request. Optional `Idempotency-Key` header makes retries safe.
+   * 201 created · 200 same key retried · 400 · 401 · 409 key used by someone else
+   */
+  @Post()
+  async create(
+    @Body({ schema: createRequestSchema }) dto: CreateRequestDto,
+    @Headers('idempotency-key') rawKey: string | undefined,
+    @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const key = idempotencyKeySchema.safeParse(rawKey);
+    if (!key.success) throw new BadRequestException(key.error.issues[0]!.message);
+    const { request, created } = await this.requests.create(dto, user, key.data);
+    res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+    return request;
+  }
+
+  /**
+   * GET /requests?status=&category=&priority=&search=&active=&limit=&offset=
+   * Operators get their own requests; supervisors and admins get all. 200 `{ items, total, limit, offset }`
+   */
+  @Get()
+  list(@Query({ schema: listRequestsQuerySchema }) query: ListRequestsQuery, @CurrentUser() user: AuthUser) {
+    return this.requests.list(query, user);
+  }
+
+  /** GET /requests/:id — one request with its event timeline. 200 · 404 (missing or not yours) */
+  @Get(':id')
+  get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.requests.get(id, user);
+  }
+
+  /**
+   * PATCH /requests/:id — change status, progress, current step or priority, or add a note.
+   * Supervisors and admins only. Send the `version` you loaded.
+   * 200 · 400 · 403 · 404 · 409 invalid transition or changed by someone else
+   */
+  @Roles('SUPERVISOR', 'ADMIN')
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body({ schema: updateRequestSchema }) dto: UpdateRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.requests.update(id, dto, user);
+  }
+
+  /**
+   * POST /requests/:id/cancel — cancel a request that hasn't finished.
+   * The submitter, or any supervisor/admin. 200 · 404 · 409
+   */
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @Param('id') id: string,
+    @Body({ schema: cancelRequestSchema }) dto: CancelRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.requests.cancel(id, dto, user);
+  }
+}

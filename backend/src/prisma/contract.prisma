@@ -72,6 +72,9 @@ model Session {
   userAgent        String?   @map("user_agent")
   ipAddress        String?   @map("ip_address")
   expiresAt        DateTime  @map("expires_at")
+  // "Remember me": a long session whose cookies survive browser restarts.
+  // Otherwise the cookies last until the browser closes.
+  remember         Boolean   @default(false)
   revokedAt        DateTime? @map("revoked_at")
   createdAt        temporal.CreatedAt @map("created_at")
 

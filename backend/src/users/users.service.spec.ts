@@ -4,6 +4,7 @@ import type { CreateUserDto } from './dto/create-user.schema.js';
 import { verifyPassword } from './password.js';
 import { EmailAlreadyExistsError, PUBLIC_USER_FIELDS, UsersRepository } from './users.repository.js';
 import { UsersService } from './users.service.js';
+import type { RealtimeService } from '../realtime/realtime.service.js';
 
 const dto: CreateUserDto = { email: 'alice@example.com', fullName: 'Alice', password: 'secret123' };
 
@@ -40,9 +41,13 @@ describe('UsersRepository.create', () => {
   });
 });
 
+const realtime = { userRoleChanged: vi.fn() };
+
 describe('UsersService', () => {
+  beforeEach(() => realtime.userRoleChanged.mockClear());
+
   function setup(repo: Partial<Record<keyof UsersRepository, unknown>>) {
-    return new UsersService(repo as unknown as UsersRepository);
+    return new UsersService(repo as unknown as UsersRepository, realtime as unknown as RealtimeService);
   }
 
   describe('create', () => {
@@ -73,6 +78,8 @@ describe('UsersService', () => {
         role: 'SUPERVISOR',
       });
       expect(changeRoleIf).toHaveBeenCalledWith('u1', 'OPERATOR', 'SUPERVISOR');
+      // The user's open tabs are told to pick up their new role.
+      expect(realtime.userRoleChanged).toHaveBeenCalledWith('u1');
     });
 
     it('404s for an unknown user', async () => {

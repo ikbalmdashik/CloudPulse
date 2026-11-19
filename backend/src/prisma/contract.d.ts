@@ -23,7 +23,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'67c67e3b38b12fed938cc526516f69895e2811ecbce7b2438fb5505d620c971b'>;
+  StorageHashBase<'f42c904d49a2ef9a09d560527f5193165d01cb4236e7d55376ef53f8b425f6c0'>;
 export type ExecutionHash =
   ExecutionHashBase<'27c141f9f158fa5e94cb6ff75537977d0b958afaae75396c1741ea43e2bbfb41'>;
 export type ProfileHash =
@@ -475,6 +475,7 @@ export namespace Models {
     id: FieldOutputTypes['public']['Session']['id'];
     ipAddress: FieldOutputTypes['public']['Session']['ipAddress'];
     refreshTokenHash: FieldOutputTypes['public']['Session']['refreshTokenHash'];
+    remember: FieldOutputTypes['public']['Session']['remember'];
     revokedAt: FieldOutputTypes['public']['Session']['revokedAt'];
     userAgent: FieldOutputTypes['public']['Session']['userAgent'];
     userId: FieldOutputTypes['public']['Session']['userId'];
@@ -1049,6 +1050,16 @@ type ContractBase = Omit<
                   readonly dataType: 'pg/text';
                   readonly codecId: 'pg/text@1';
                   readonly nullable: false;
+                  readonly many: false;
+                };
+                readonly remember: {
+                  readonly dataType: 'pg/bool';
+                  readonly codecId: 'pg/bool@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'literal';
+                    readonly value: DefaultLiteralValue<'pg/bool@1', false>;
+                  };
                   readonly many: false;
                 };
                 readonly revoked_at: {
@@ -1642,6 +1653,10 @@ type ContractBase = Omit<
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
               };
+              readonly remember: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/bool@1' };
+              };
               readonly revokedAt: {
                 readonly nullable: true;
                 readonly type: {
@@ -1679,6 +1694,7 @@ type ContractBase = Omit<
                 readonly id: { readonly column: 'id' };
                 readonly ipAddress: { readonly column: 'ip_address' };
                 readonly refreshTokenHash: { readonly column: 'refresh_token_hash' };
+                readonly remember: { readonly column: 'remember' };
                 readonly revokedAt: { readonly column: 'revoked_at' };
                 readonly userAgent: { readonly column: 'user_agent' };
                 readonly userId: { readonly column: 'user_id' };

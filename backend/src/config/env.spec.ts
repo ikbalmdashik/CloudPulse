@@ -1,24 +1,29 @@
 import { validateEnv } from './env.js';
 
 describe('validateEnv', () => {
-  const url = 'postgresql://u:p@localhost:5432/db';
+  const base = { DATABASE_URL: 'postgresql://u:p@localhost:5432/db', JWT_SECRET: 'x'.repeat(32) };
 
   it('applies defaults', () => {
-    expect(validateEnv({ DATABASE_URL: url })).toEqual({
+    expect(validateEnv(base)).toEqual({
+      ...base,
       NODE_ENV: 'development',
       PORT: 4000,
-      DATABASE_URL: url,
+      ACCESS_TOKEN_TTL_MINUTES: 10,
       SESSION_TTL_HOURS: 8,
+      REMEMBER_ME_DAYS: 30,
+      FRONTEND_ORIGIN: 'http://localhost:3000',
     });
   });
 
-  it('parses PORT as a number', () => {
-    expect(validateEnv({ DATABASE_URL: url, PORT: '8080' }).PORT).toBe(8080);
+  it('parses numbers from strings', () => {
+    const env = validateEnv({ ...base, PORT: '8080', ACCESS_TOKEN_TTL_MINUTES: '5' });
+    expect(env.PORT).toBe(8080);
+    expect(env.ACCESS_TOKEN_TTL_MINUTES).toBe(5);
   });
 
   it('lists every problem in one error', () => {
-    expect(() => validateEnv({ PORT: 'abc', NODE_ENV: 'staging' })).toThrow(
-      /NODE_ENV must be one of[\s\S]*PORT must be[\s\S]*DATABASE_URL must be/,
+    expect(() => validateEnv({ PORT: 'abc', NODE_ENV: 'staging', JWT_SECRET: 'short' })).toThrow(
+      /NODE_ENV must be one of[\s\S]*PORT must be[\s\S]*DATABASE_URL is required[\s\S]*JWT_SECRET must be at least 32/,
     );
   });
 });

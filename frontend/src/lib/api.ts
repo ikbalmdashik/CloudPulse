@@ -31,14 +31,67 @@ interface RequestOptions {
   body?: unknown;
   query?: Query;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
+}
+
+/** Auth endpoints answer 401 for their own reasons (wrong password…); never retry them. */
+const NO_REFRESH = ["/auth/login", "/auth/refresh", "/auth/logout"];
+
+let refreshing: Promise<boolean> | null = null;
+
+/**
+ * Gets a new access token using the refresh cookie. Returns false if the
+ * session is over (the user must log in again).
+ *
+ * Each refresh token works once, and all tabs share the cookies. A Web Lock
+ * makes tabs take turns: a tab that waited first checks whether the tab before
+ * it already refreshed (then the shared cookie works) and only refreshes if not.
+ * Within one tab, concurrent callers share one attempt.
+ */
+export function refreshSession(): Promise<boolean> {
+  refreshing ??= (async () => {
+    const run = async () => {
+      const me = await fetch("/api/auth/me", { credentials: "same-origin" });
+      if (me.ok) return true;
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      return res.ok;
+    };
+    try {
+      return typeof navigator !== "undefined" && navigator.locks
+        ? await navigator.locks.request("cloudpulse-refresh", run)
+        : await run();
+    } catch {
+      return false;
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
 }
 
 /**
  * Calls the backend through the `/api` rewrite (see next.config.ts). The
- * session travels in the httpOnly `cp_session` cookie, which the browser sends
- * automatically; this code never sees the token.
+ * access token (a short-lived JWT) and the refresh token travel in httpOnly
+ * cookies, which the browser sends automatically; this code never sees them.
+ * When the access token has expired, it refreshes once and retries.
  */
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  try {
+    return await send<T>(path, opts);
+  } catch (err) {
+    const retry =
+      err instanceof ApiError && err.status === 401 && !NO_REFRESH.includes(path) && (await refreshSession());
+    if (!retry) throw err;
+    return await send<T>(path, opts);
+  }
+}
+
+async function send<T>(path: string, opts: RequestOptions): Promise<T> {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(opts.query ?? {})) {
     if (v !== undefined && v !== "") params.set(k, String(v));
@@ -49,7 +102,10 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   try {
     res = await fetch(`/api${path}${qs}`, {
       method: opts.method ?? "GET",
-      headers: opts.body === undefined ? undefined : { "content-type": "application/json" },
+      headers: {
+        ...(opts.body === undefined ? {} : { "content-type": "application/json" }),
+        ...opts.headers,
+      },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       credentials: "same-origin",
       signal: opts.signal,

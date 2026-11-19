@@ -14,7 +14,6 @@ import { type Env, validateEnv } from '../config/env.js';
 import { DatabaseModule } from '../database/database.module.js';
 import { createUserSchema } from '../users/dto/create-user.schema.js';
 import { hashPassword } from '../users/password.js';
-import { UsersModule } from '../users/users.module.js';
 import { UsersRepository } from '../users/users.repository.js';
 
 interface SeedEnv extends Env {
@@ -42,8 +41,9 @@ function validateSeedEnv(raw: Record<string, unknown>): SeedEnv {
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateSeedEnv }),
     DatabaseModule,
-    UsersModule,
   ],
+  // Only the repository: the full UsersModule also needs the WebSocket gateway.
+  providers: [UsersRepository],
 })
 class SeedModule {}
 
