@@ -1,12 +1,167 @@
 // use prisma-8
 
+// ==========================================
+// ENUMS
+// ==========================================
 
-// use prisma-8
+enum Role {
+  OPERATOR
+  SUPERVISOR
+  ADMIN
+}
+
+enum ServiceCategory {
+  VM_PROVISIONING
+  HEALTH_DIAGNOSTIC
+  CONFIG_UPDATE
+  AUDIT_REPORT
+  ACCESS_RESET
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+// ==========================================
+// MODELS
+// ==========================================
 
 model User {
-  id        Int      @id @default(autoincrement())
-  fullName  String
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
+  id           String    @id @onCreate(uuid(7))
+  email        String    @unique
+  fullName     String    @map("full_name")
+  passwordHash String    @map("password_hash")
+  role         Role      @default(OPERATOR)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    temporal.CreatedAt @map("created_at")
+  updatedAt    temporal.UpdatedAt @map("updated_at")
+
+  createdRequests Request[]      @relation("CreatedRequests")
+  handledLogs     RequestEvent[] @relation("ActorEvents")
+  sessions        Session[]
+
+  @@index([role, isActive], name: "users_role_active")
+  @@map("users")
+}
+
+model Session {
+  id               String    @id @onCreate(uuid(7))
+  userId           String    @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        temporal.CreatedAt @map("created_at")
+
+  @@index([userId, expiresAt], name: "sessions_user_expires")
+  @@map("sessions")
+}
+
+model Request {
+  id             String          @id @onCreate(uuid(7))
+  code           String          @unique
+  idempotencyKey String?         @unique @map("idempotency_key")
+  title          String
+  description    String?
+  category       ServiceCategory
+  priority       Priority        @default(MEDIUM)
+  status         RequestStatus   @default(PENDING)
+  progress       Int             @default(0)
+  currentStep    String?         @map("current_step")
+  payload        Jsonb?
+  result         Jsonb?
+  errorCode      String?         @map("error_code")
+  errorReason    String?         @map("error_reason")
+  version        Int             @default(1)
+
+  operatorId String @map("operator_id")
+  operator   User   @relation("CreatedRequests", fields: [operatorId], references: [id], onDelete: Restrict)
+
+  createdAt   temporal.CreatedAt @map("created_at")
+  updatedAt   temporal.UpdatedAt @map("updated_at")
+  startedAt   DateTime?          @map("started_at")
+  completedAt DateTime?          @map("completed_at")
+  // Set when a user cancels a request that is already running; the worker checks it between steps and stops.
+  cancelRequestedAt DateTime?    @map("cancel_requested_at")
+  deletedAt   DateTime?          @map("deleted_at")
+
+  jobs   ExecutionJob[]
+  events RequestEvent[]
+
+  @@check(expression: sql`progress >= 0 AND progress <= 100`, name: "requests_progress_range")
+  @@check(expression: sql`version >= 1`, name: "requests_version_positive")
+  @@index([status, priority, createdAt], name: "requests_active_queue", where: sql`deleted_at IS NULL`)
+  @@index([operatorId, createdAt], name: "requests_by_operator", where: sql`deleted_at IS NULL`)
+  @@index([category, status], name: "requests_category_status", where: sql`deleted_at IS NULL`)
+  @@index([status], name: "requests_in_flight", where: sql`status IN ('PENDING', 'IN_PROGRESS') AND deleted_at IS NULL`)
+  @@index([payload], name: "requests_payload_gin", type: "gin")
+  @@map("requests")
+}
+
+model ExecutionJob {
+  id          String    @id @onCreate(uuid(7))
+  requestId   String    @map("request_id")
+  request     Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  workerId    String?   @map("worker_id")
+  lockToken   String?   @map("lock_token")
+  lockedUntil DateTime? @map("locked_until")
+  status      JobStatus @default(QUEUED)
+  progress    Int       @default(0)
+  attempt     Int       @default(1)
+  maxAttempts Int       @default(3) @map("max_attempts")
+  logs        String?
+  queuedAt    temporal.CreatedAt @map("queued_at")
+  startedAt   DateTime?          @map("started_at")
+  finishedAt  DateTime?          @map("finished_at")
+
+  @@check(expression: sql`progress >= 0 AND progress <= 100`, name: "jobs_progress_range")
+  @@check(expression: sql`attempt >= 1 AND max_attempts >= 1`, name: "jobs_attempts_positive")
+  @@index([status, queuedAt], name: "jobs_queue_claim")
+  @@index([requestId, attempt], name: "jobs_by_request_attempt")
+  @@index([lockedUntil], name: "jobs_active_leases", where: sql`status = 'RUNNING'`)
+  // At most one queued or running job per request, so two workers can never process the same request.
+  @@index([requestId], name: "jobs_one_active_per_request", unique: true, where: sql`status IN ('QUEUED', 'RUNNING')`)
+  @@map("execution_jobs")
+}
+
+model RequestEvent {
+  id         String         @id @onCreate(uuid(7))
+  requestId  String         @map("request_id")
+  request    Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actorId    String?        @map("actor_id")
+  actor      User?          @relation("ActorEvents", fields: [actorId], references: [id], onDelete: SetNull)
+  eventType  String         @map("event_type")
+  fromStatus RequestStatus? @map("from_status")
+  toStatus   RequestStatus? @map("to_status")
+  progress   Int?
+  message    String
+  metadata   Jsonb?
+  createdAt  temporal.CreatedAt @map("created_at")
+
+  @@check(expression: sql`progress IS NULL OR (progress >= 0 AND progress <= 100)`, name: "events_progress_range")
+  @@index([requestId, createdAt], name: "events_by_request")
+  @@index([createdAt], name: "events_timeline")
+  @@map("request_events")
 }
