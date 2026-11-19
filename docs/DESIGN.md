@@ -373,6 +373,7 @@ Because all coordination goes through PostgreSQL, **several API instances can sh
 | Forms | **react-hook-form + zod** | Fast uncontrolled forms with the same validation messages style as the API. |
 | UI | **Tailwind CSS + shadcn/ui on Base UI**, lucide icons, sonner toasts | Accessible primitives, a consistent design system, responsive utilities and dark mode. |
 | Tests / quality | **Vitest**, oxlint, ESLint, Prettier | Fast ESM-native tests (104 backend unit tests); type-aware linting. |
-| Local infrastructure | **Docker Compose** (PostgreSQL) | One command for a reproducible database. |
+| Containers | **Docker + Docker Compose** | `docker compose up --build` runs the whole stack (database, migrations, API, web) the same way everywhere; multi-stage images run as a non-root user. |
+| CI | **GitHub Actions** | Every push and pull request is linted, typechecked, tested and built, including both Docker images, so `main` always builds. |
 
 **Scaling path.** Run several API instances behind a load balancer (the API is stateless thanks to JWT, and the queue is already multi-worker safe). Add the Socket.IO Redis adapter so an event emitted on one instance reaches sockets on the others. Move workers to their own process with `WORKER_ENABLED=false` on the API instances.
