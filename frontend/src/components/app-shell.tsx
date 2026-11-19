@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Suspense, useEffect } from "react";
 import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
 import { AppSidebar } from "@/components/app-sidebar";
+import { BackButton } from "@/components/back-button";
 import { RealtimeProvider, useLiveStatus } from "@/components/realtime-provider";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -54,6 +55,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/90 px-4 backdrop-blur">
             <SidebarTrigger className="-ml-1" aria-label="Toggle navigation" />
             <Separator orientation="vertical" className="mr-1 data-vertical:h-4 data-vertical:self-center" />
+            <Suspense>
+              <BackButton />
+            </Suspense>
             <div className="min-w-0 flex-1">
               {/* Breadcrumbs read the URL, so they render inside Suspense. */}
               <Suspense fallback={<Skeleton className="h-4 w-40" />}>

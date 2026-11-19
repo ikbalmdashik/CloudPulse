@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CircleAlertIcon, Loader2Icon } from "lucide-react";
+import { ArrowLeftIcon, CircleAlertIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -58,6 +58,12 @@ export function RegisterForm() {
   return (
     <Card>
       <CardHeader>
+        <Link
+          href="/login"
+          className="-ml-1 mb-1 inline-flex w-fit items-center gap-1 rounded-md px-1 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <ArrowLeftIcon className="size-4" /> Back to log in
+        </Link>
         <CardTitle className="text-xl">Create an account</CardTitle>
         <CardDescription>
           New accounts start as operators. An admin can promote you to supervisor.

@@ -68,7 +68,7 @@ function RequestForm({ onDone }: { onDone: () => void }) {
       {
         onSuccess: (request) => {
           toast.success(`${request.code} submitted`, { description: request.title });
-          router.push(`/requests/${request.id}`);
+          router.replace(`/requests/${request.id}`);
           onDone();
         },
         onError: (err) => {

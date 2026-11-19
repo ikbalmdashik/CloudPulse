@@ -28,7 +28,7 @@ function RequestCode({ id }: { id: string }) {
 }
 
 /** Breadcrumb trail for a path. Unknown paths fall back to Dashboard only. */
-function crumbsFor(path: string, role: Role | undefined): Crumb[] {
+export function crumbsFor(path: string, role: Role | undefined): Crumb[] {
   const home: Crumb = { href: "/", label: "Dashboard" };
   const requests: Crumb = { href: "/requests", label: role === "OPERATOR" ? "My requests" : "All requests" };
   const parts = path.split("/").filter(Boolean);
