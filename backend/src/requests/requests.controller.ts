@@ -16,6 +16,8 @@ import type { Response } from 'express';
 import type { AuthUser } from '../auth/auth-user.js';
 import { CurrentUser, Roles } from '../auth/decorators.js';
 import {
+  type ApproveAllDto,
+  approveAllSchema,
   type ApproveRequestDto,
   approveRequestSchema,
   type CancelRequestDto,
@@ -69,6 +71,20 @@ export class RequestsController {
   @Get()
   list(@Query({ schema: listRequestsQuerySchema }) query: ListRequestsQuery, @CurrentUser() user: AuthUser) {
     return this.requests.list(query, user);
+  }
+
+  /**
+   * POST /requests/approve-all — approve every request awaiting approval that
+   * matches the given list filters (`since`, `category`, `priority`, `search`)
+   * and was submitted by `asOf`. Supervisors and admins; their own requests
+   * are skipped. Approves at most 200 per call.
+   * 200 `{ approved, skippedOwn, skippedChanged, remaining }` · 400 · 403
+   */
+  @Roles('SUPERVISOR', 'ADMIN')
+  @Post('approve-all')
+  @HttpCode(HttpStatus.OK)
+  approveAll(@Body({ schema: approveAllSchema }) dto: ApproveAllDto, @CurrentUser() user: AuthUser) {
+    return this.requests.approveAll(dto, user);
   }
 
   /** GET /requests/:id — one request with its event timeline. 200 · 404 (missing or not yours) */

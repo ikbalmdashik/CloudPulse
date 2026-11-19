@@ -12,6 +12,7 @@ import type { Env } from '../config/env.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { STAFF_ROLES } from '../realtime/realtime.gateway.js';
 import type {
+  ApproveAllDto,
   ApproveRequestDto,
   CancelRequestDto,
   CreateRequestDto,
@@ -31,6 +32,21 @@ import {
 } from './requests.repository.js';
 
 const isStaff = (user: AuthUser) => STAFF_ROLES.includes(user.role);
+
+/** Most requests one "approve all" click approves; the rest wait for another click. */
+export const APPROVE_ALL_LIMIT = 200;
+
+/** What `POST /requests/approve-all` did. */
+export interface ApproveAllResult {
+  /** Requests approved and queued. */
+  approved: number;
+  /** Matching requests the user submitted themselves (four-eyes rule): left for someone else. */
+  skippedOwn: number;
+  /** Requests that changed meanwhile (e.g. someone else approved or cancelled them first). */
+  skippedChanged: number;
+  /** Matching requests beyond APPROVE_ALL_LIMIT, still awaiting approval. */
+  remaining: number;
+}
 const STALE =
   'This request was changed since you loaded it. Reload to see the latest version, then try again.';
 
@@ -191,6 +207,52 @@ export class RequestsService {
     );
     this.queue.notify(); // wake an idle CPU now rather than at its next poll
     return request;
+  }
+
+  /**
+   * Supervisor/admin approves every request awaiting approval that matches
+   * the list filters (time window, category, priority, search) and was
+   * submitted no later than `asOf`. Each is approved like a single approval:
+   * same four-eyes rule (their own requests are skipped), same optimistic
+   * locking (one changed meanwhile is skipped, not overwritten).
+   */
+  async approveAll(dto: ApproveAllDto, user: AuthUser): Promise<ApproveAllResult> {
+    const filter = { category: dto.category, priority: dto.priority, search: dto.search, since: dto.since, asOf: dto.asOf };
+    const [{ items, total }, all] = await Promise.all([
+      this.requests.findAwaitingApproval(filter, user.id, APPROVE_ALL_LIMIT),
+      this.requests.countAwaitingApproval(filter),
+    ]);
+
+    const now = new Date();
+    let approved = 0;
+    for (const r of items) {
+      const eventId = await this.requests.updateIfVersion(
+        r.id,
+        r.version,
+        { status: 'PENDING', approvedById: user.id, approvedAt: now },
+        {
+          actorId: user.id,
+          eventType: 'approved',
+          fromStatus: 'AWAITING_APPROVAL',
+          toStatus: 'PENDING',
+          message: `Approved by ${user.fullName} (bulk approval); queued for processing`,
+        },
+        { enqueue: { maxAttempts: this.maxAttempts } },
+      );
+      if (!eventId) continue;
+      approved++;
+      await this.publish(r.id, eventId);
+    }
+    if (approved > 0) this.queue.notify();
+
+    const result: ApproveAllResult = {
+      approved,
+      skippedOwn: all - total,
+      skippedChanged: items.length - approved,
+      remaining: total - items.length,
+    };
+    this.logger.log(`Bulk approval by ${user.id}: ${JSON.stringify(result)}`);
+    return result;
   }
 
   /** Supervisor/admin turns a request down, with a reason the submitter sees. Same four-eyes rule. */

@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { SinceWindow } from "@/lib/labels";
 import type {
   Category,
   Environment,
@@ -18,6 +19,8 @@ export interface RequestsFilter {
   priority?: Priority;
   search?: string;
   active?: boolean;
+  /** Only requests submitted within this window (measured from now). */
+  since?: SinceWindow;
   limit: number;
   offset: number;
 }
@@ -34,8 +37,9 @@ export const requestKeys = {
  * Requests list. No polling: the realtime provider updates and refetches these
  * queries when the server pushes a change over the WebSocket.
  */
-export function useRequests(filter: RequestsFilter) {
+export function useRequests(filter: RequestsFilter, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
+    enabled,
     queryKey: requestKeys.list(filter),
     queryFn: ({ signal }) =>
       api<Page<ServiceRequest>>("/requests", {
@@ -43,6 +47,38 @@ export function useRequests(filter: RequestsFilter) {
         signal,
       }),
     placeholderData: keepPreviousData,
+    // A time window slides: refresh now and then so requests that age out of
+    // it leave the list even when nothing else changes.
+    refetchInterval: filter.since ? 15_000 : false,
+  });
+}
+
+/** The list filters "Approve all" applies to; `asOf` is when the user confirmed. */
+export interface ApproveAllInput {
+  category?: Category;
+  priority?: Priority;
+  search?: string;
+  since?: SinceWindow;
+  asOf: string;
+}
+
+export interface ApproveAllResult {
+  approved: number;
+  /** The user's own requests: someone else must approve them. */
+  skippedOwn: number;
+  /** Changed meanwhile (approved, rejected or cancelled by someone else). */
+  skippedChanged: number;
+  /** Beyond the per-click limit; still awaiting approval. */
+  remaining: number;
+}
+
+/** Staff: approve every request awaiting approval that matches the list filters. */
+export function useApproveAll() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ApproveAllInput) =>
+      api<ApproveAllResult>("/requests/approve-all", { method: "POST", body }),
+    onSettled: () => qc.invalidateQueries({ queryKey: requestKeys.all }),
   });
 }
 

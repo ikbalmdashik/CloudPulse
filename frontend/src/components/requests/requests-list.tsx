@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, PlusIcon, SearchIcon } from "lucide-
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { ApproveAllButton } from "@/components/requests/approve-all-dialog";
 import { PriorityBadge, StatusBadge } from "@/components/requests/badges";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,13 +16,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useMe } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useRequests } from "@/hooks/use-requests";
-import { CATEGORY_LABEL, PRIORITY_LABEL, STATUS_LABEL } from "@/lib/labels";
+import {
+  CATEGORY_LABEL,
+  PRIORITY_LABEL,
+  SINCE_LABEL,
+  SINCE_OPTIONS,
+  SINCE_VALUES,
+  type SinceWindow,
+  STATUS_LABEL,
+} from "@/lib/labels";
 import { CATEGORIES, type Category, isStaff, PRIORITIES, type Priority, STATUSES, type Status } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 15;
 const ALL = "ALL";
 const ACTIVE = "ACTIVE";
+const ANY_TIME = "ANY";
 type StatusFilter = Status | typeof ALL | typeof ACTIVE;
 
 /** A query-string value, if it is one of `allowed`. */
@@ -93,6 +103,7 @@ export function RequestsList() {
   const status: StatusFilter = pick(params.get("status"), [ALL, ...STATUSES]) ?? ACTIVE;
   const category: Category | typeof ALL = pick(params.get("category"), CATEGORIES) ?? ALL;
   const priority: Priority | typeof ALL = pick(params.get("priority"), PRIORITIES) ?? ALL;
+  const since: SinceWindow | typeof ANY_TIME = pick(params.get("since"), SINCE_VALUES) ?? ANY_TIME;
   const page = Math.max(0, (Number.parseInt(params.get("page") ?? "1", 10) || 1) - 1);
 
   /** Updates the query string. Any filter change goes back to page 1. */
@@ -109,6 +120,7 @@ export function RequestsList() {
   const setStatus = (v: StatusFilter) => setQuery({ status: v === ACTIVE ? null : v });
   const setCategory = (v: Category | typeof ALL) => setQuery({ category: v === ALL ? null : v });
   const setPriority = (v: Priority | typeof ALL) => setQuery({ priority: v === ALL ? null : v });
+  const setSince = (v: SinceWindow | typeof ANY_TIME) => setQuery({ since: v === ANY_TIME ? null : v });
   const setPage = (p: number) => setQuery({ page: p === 0 ? null : String(p + 1) });
 
   const requests = useRequests({
@@ -117,9 +129,24 @@ export function RequestsList() {
     active: status === ACTIVE || undefined,
     category: category === ALL ? undefined : category,
     priority: priority === ALL ? undefined : priority,
+    since: since === ANY_TIME ? undefined : since,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   });
+
+  // "Approve all" acts on the requests awaiting approval among these filters,
+  // so it shows when the status filter can include them.
+  const bulkFilter = {
+    search: debouncedSearch || undefined,
+    category: category === ALL ? undefined : category,
+    priority: priority === ALL ? undefined : priority,
+    since: since === ANY_TIME ? undefined : since,
+  };
+  const canApproveAll = staff && (status === ACTIVE || status === ALL || status === "AWAITING_APPROVAL");
+  const awaiting = useRequests(
+    { ...bulkFilter, status: "AWAITING_APPROVAL", limit: 1, offset: 0 },
+    { enabled: canApproveAll },
+  );
 
   const total = requests.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -135,9 +162,12 @@ export function RequestsList() {
               : "Requests you've submitted. Status and progress update live."}
           </p>
         </div>
-        <Link href="/requests/new" className={buttonVariants()}>
-          <PlusIcon /> New request
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {canApproveAll && <ApproveAllButton filter={bulkFilter} count={awaiting.data?.total ?? 0} />}
+          <Link href="/requests/new" className={buttonVariants()}>
+            <PlusIcon /> New request
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -196,6 +226,16 @@ export function RequestsList() {
                 ]}
                 render={(v) => (v === ALL ? "All priorities" : PRIORITY_LABEL[v])}
               />
+              <FilterSelect<SinceWindow | typeof ANY_TIME>
+                label="Filter by when it was submitted"
+                value={since}
+                onChange={setSince}
+                options={[
+                  { value: ANY_TIME, label: "Any time" },
+                  ...SINCE_OPTIONS.map((o) => ({ value: o.value as SinceWindow | typeof ANY_TIME, label: o.label })),
+                ]}
+                render={(v) => (v === ANY_TIME ? "Any time" : SINCE_LABEL[v])}
+              />
             </div>
           </div>
         </CardHeader>
@@ -234,7 +274,7 @@ export function RequestsList() {
                   {requests.data?.items.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
-                        {status === ACTIVE && !debouncedSearch && category === ALL && priority === ALL
+                        {status === ACTIVE && !debouncedSearch && category === ALL && priority === ALL && since === ANY_TIME
                           ? "No active requests right now."
                           : "No requests match these filters."}
                       </TableCell>

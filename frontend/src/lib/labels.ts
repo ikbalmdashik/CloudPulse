@@ -38,3 +38,19 @@ export const ENVIRONMENT_LABEL: Record<Environment, string> = {
   staging: "Staging",
   production: "Production",
 };
+
+/** "Submitted within" windows for the requests list (keys match the API's `since`). */
+export const SINCE_OPTIONS = [
+  { value: "1m", label: "Last 1 minute" },
+  { value: "5m", label: "Last 5 minutes" },
+  { value: "15m", label: "Last 15 minutes" },
+  { value: "30m", label: "Last 30 minutes" },
+  { value: "1h", label: "Last hour" },
+  { value: "6h", label: "Last 6 hours" },
+  { value: "24h", label: "Last 24 hours" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+] as const;
+export type SinceWindow = (typeof SINCE_OPTIONS)[number]["value"];
+export const SINCE_VALUES = SINCE_OPTIONS.map((o) => o.value) as readonly SinceWindow[];
+export const SINCE_LABEL = Object.fromEntries(SINCE_OPTIONS.map((o) => [o.value, o.label])) as Record<SinceWindow, string>;

@@ -3,7 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { AuthUser } from '../auth/auth-user.js';
 import type { Env } from '../config/env.js';
 import type { RealtimeService } from '../realtime/realtime.service.js';
-import { createRequestSchema, updateRequestSchema } from './dto/request.schemas.js';
+import { approveAllSchema, createRequestSchema, listRequestsQuerySchema, updateRequestSchema } from './dto/request.schemas.js';
 import { QueueSignal } from './queue-signal.js';
 import { canTransition, isFinal, type Status } from './request-rules.js';
 import { DuplicateIdempotencyKeyError, generateRequestCode, type RequestsRepository } from './requests.repository.js';
@@ -39,6 +39,8 @@ function setup(current = row()) {
     findEvent: vi.fn().mockResolvedValue({ id: 'e2' }),
     list: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     updateIfVersion: vi.fn().mockResolvedValue('e2'),
+    findAwaitingApproval: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    countAwaitingApproval: vi.fn().mockResolvedValue(0),
   };
   const realtime = { requestChanged: vi.fn() };
   const queue = new QueueSignal();
@@ -233,6 +235,57 @@ describe('RequestsService', () => {
       await conflict(setup(row({ status: 'PENDING' })).service.approve('r1', { version: 1 }, supervisor), /only requests awaiting approval/);
       await conflict(setup(row({ status: 'CANCELLED' })).service.reject('r1', { version: 1, reason: 'late' }, supervisor), /only requests awaiting approval/);
       await conflict(setup(row({ version: 2 })).service.approve('r1', { version: 1 }, supervisor), /changed since/);
+    });
+  });
+
+  describe('approve all (staff)', () => {
+    const asOf = new Date('2026-11-20T10:00:00Z');
+
+    it('approves every matching request, skipping own and changed ones, and wakes a worker once', async () => {
+      const { service, repo, woken, realtime } = setup();
+      repo.findAwaitingApproval.mockResolvedValue({
+        items: [
+          { id: 'a', code: 'A', version: 1 },
+          { id: 'b', code: 'B', version: 3 },
+          { id: 'c', code: 'C', version: 1 },
+        ],
+        total: 3,
+      });
+      repo.countAwaitingApproval.mockResolvedValue(5); // 2 of them are the supervisor's own
+      repo.updateIfVersion.mockResolvedValueOnce('e1').mockResolvedValueOnce(null).mockResolvedValueOnce('e3');
+
+      const result = await service.approveAll({ since: '5m', asOf }, supervisor);
+
+      expect(result).toEqual({ approved: 2, skippedOwn: 2, skippedChanged: 1, remaining: 0 });
+      expect(repo.findAwaitingApproval).toHaveBeenCalledWith(expect.objectContaining({ since: '5m', asOf }), 'sup1', 200);
+      const [id, version, changes, event, jobs] = repo.updateIfVersion.mock.calls[1]!;
+      expect([id, version]).toEqual(['b', 3]);
+      expect(changes).toMatchObject({ status: 'PENDING', approvedById: 'sup1' });
+      expect(event).toMatchObject({ eventType: 'approved', fromStatus: 'AWAITING_APPROVAL', toStatus: 'PENDING' });
+      expect(jobs).toEqual({ enqueue: { maxAttempts: 3 } });
+      expect(realtime.requestChanged).toHaveBeenCalledTimes(2);
+      expect(woken).toHaveBeenCalledOnce();
+    });
+
+    it('reports what is left beyond the per-call limit, and does nothing when nothing matches', async () => {
+      const { service, repo, woken } = setup();
+      repo.findAwaitingApproval.mockResolvedValue({ items: [{ id: 'a', code: 'A', version: 1 }], total: 250 });
+      repo.countAwaitingApproval.mockResolvedValue(250);
+      expect(await service.approveAll({ asOf }, supervisor)).toMatchObject({ approved: 1, remaining: 249 });
+
+      const empty = setup();
+      expect(await empty.service.approveAll({ asOf }, supervisor)).toEqual({ approved: 0, skippedOwn: 0, skippedChanged: 0, remaining: 0 });
+      expect(empty.repo.updateIfVersion).not.toHaveBeenCalled();
+      expect(empty.woken).not.toHaveBeenCalled();
+      expect(woken).toHaveBeenCalledOnce();
+    });
+
+    it('validates the time window and requires asOf', () => {
+      expect(listRequestsQuerySchema.parse({ since: '1h' }).since).toBe('1h');
+      expect(listRequestsQuerySchema.safeParse({ since: '2m' }).success).toBe(false);
+      expect(approveAllSchema.safeParse({ since: '5m' }).success).toBe(false);
+      expect(approveAllSchema.parse({ since: '5m', asOf: '2026-11-20T10:00:00.000Z' }).asOf).toEqual(asOf);
+      expect(approveAllSchema.safeParse({ asOf: '2026-11-20T10:00:00Z', status: 'PENDING' }).success).toBe(false);
     });
   });
 

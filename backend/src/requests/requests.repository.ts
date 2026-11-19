@@ -4,7 +4,7 @@ import { and, or } from '@prisma/orm-postgres/orm-client';
 import { DB } from '../database/database.module.js';
 import type { Db } from '../prisma/db.js';
 import { ACTIVE_STATUSES, type Category, type Priority, type Status } from './request-rules.js';
-import type { ListRequestsQuery } from './dto/request.schemas.js';
+import { type ListRequestsQuery, SINCE_WINDOWS, type SinceWindow } from './dto/request.schemas.js';
 
 /** Columns returned to clients for a request. */
 export const REQUEST_FIELDS = [
@@ -34,6 +34,15 @@ export const REQUEST_FIELDS = [
 const JOB_SUMMARY_FIELDS = ['id', 'status', 'attempt', 'maxAttempts', 'workerId', 'queuedAt', 'startedAt', 'finishedAt'] as const;
 
 const EVENT_FIELDS = ['id', 'eventType', 'fromStatus', 'toStatus', 'progress', 'message', 'createdAt'] as const;
+
+/** List filters shared by `GET /requests` and the bulk approval. */
+export interface RequestFilter {
+  category?: Category;
+  priority?: Priority;
+  search?: string;
+  since?: SinceWindow;
+  asOf?: Date;
+}
 
 /** A JSON value, as stored in the jsonb columns. */
 export type Json = string | number | boolean | null | readonly Json[] | { readonly [key: string]: Json };
@@ -191,18 +200,11 @@ export class RequestsRepository {
 
   /** Newest first. `operatorId` limits the list to one submitter's requests. */
   async list(query: ListRequestsQuery, operatorId?: string) {
-    const pattern = query.search ? `%${escapeLike(query.search)}%` : undefined;
-    const filtered = this.db.orm.public.Request.where((r) =>
-      and(
-        r.deletedAt.isNull(),
-        operatorId ? r.operatorId.eq(operatorId) : r.id.isNotNull(),
-        query.status ? r.status.eq(query.status) : r.id.isNotNull(),
-        query.category ? r.category.eq(query.category) : r.id.isNotNull(),
-        query.priority ? r.priority.eq(query.priority) : r.id.isNotNull(),
-        query.active ? r.status.in([...ACTIVE_STATUSES]) : r.id.isNotNull(),
-        pattern ? or(r.code.ilike(pattern), r.title.ilike(pattern)) : r.id.isNotNull(),
-      ),
-    );
+    const filtered = this.filtered({
+      ...query,
+      statuses: query.status ? [query.status] : query.active ? [...ACTIVE_STATUSES] : undefined,
+      operatorId,
+    });
     const [items, totals] = await Promise.all([
       filtered
         .select(...REQUEST_FIELDS)
@@ -215,6 +217,53 @@ export class RequestsRepository {
       filtered.aggregate((a) => ({ total: a.count() })),
     ]);
     return { items, total: totals.total, limit: query.limit, offset: query.offset };
+  }
+
+  /**
+   * Requests awaiting approval that match the list filters, oldest first (the
+   * order they would have been approved one by one), leaving out those
+   * `excludeOperatorId` submitted. At most `limit`, plus the full count.
+   */
+  async findAwaitingApproval(filter: RequestFilter, excludeOperatorId: string, limit: number) {
+    const filtered = this.filtered({ ...filter, statuses: ['AWAITING_APPROVAL'], excludeOperatorId });
+    const [items, totals] = await Promise.all([
+      filtered
+        .select('id', 'code', 'version')
+        .orderBy((r) => r.createdAt.asc())
+        .limit(limit)
+        .all()
+        .toArray(),
+      filtered.aggregate((a) => ({ total: a.count() })),
+    ]);
+    return { items, total: totals.total };
+  }
+
+  /** How many requests awaiting approval match the filters, whoever submitted them. */
+  async countAwaitingApproval(filter: RequestFilter): Promise<number> {
+    const totals = await this.filtered({ ...filter, statuses: ['AWAITING_APPROVAL'] }).aggregate((a) => ({
+      total: a.count(),
+    }));
+    return totals.total;
+  }
+
+  /** The shared WHERE clause of the list and bulk queries. */
+  private filtered(f: RequestFilter & { statuses?: Status[]; operatorId?: string; excludeOperatorId?: string }) {
+    const pattern = f.search ? `%${escapeLike(f.search)}%` : undefined;
+    const asOf = f.asOf ?? new Date();
+    const from = f.since ? new Date(asOf.getTime() - SINCE_WINDOWS[f.since]) : undefined;
+    return this.db.orm.public.Request.where((r) =>
+      and(
+        r.deletedAt.isNull(),
+        f.operatorId ? r.operatorId.eq(f.operatorId) : r.id.isNotNull(),
+        f.excludeOperatorId ? r.operatorId.neq(f.excludeOperatorId) : r.id.isNotNull(),
+        f.statuses ? r.status.in(f.statuses) : r.id.isNotNull(),
+        f.category ? r.category.eq(f.category) : r.id.isNotNull(),
+        f.priority ? r.priority.eq(f.priority) : r.id.isNotNull(),
+        from ? r.createdAt.gte(from) : r.id.isNotNull(),
+        f.asOf ? r.createdAt.lte(f.asOf) : r.id.isNotNull(),
+        pattern ? or(r.code.ilike(pattern), r.title.ilike(pattern)) : r.id.isNotNull(),
+      ),
+    );
   }
 
   /**
