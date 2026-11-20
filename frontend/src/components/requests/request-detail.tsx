@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlertIcon, CpuIcon, Loader2Icon } from "lucide-react";
+import { BanIcon, CircleAlertIcon, CpuIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -121,6 +121,7 @@ function SubmitterActions({ request }: { request: RequestDetail }) {
         open={open && !isFinal(request.status)}
         onOpenChange={setOpen}
         title="Cancel this request?"
+        icon={<BanIcon />}
         description="The operations team will stop working on it. This can't be undone."
         label="Reason"
         confirmLabel="Cancel request"

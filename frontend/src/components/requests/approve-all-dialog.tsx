@@ -11,6 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogMedia,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { type ApproveAllInput, type ApproveAllResult, useApproveAll } from "@/hooks/use-requests";
@@ -76,6 +77,9 @@ export function ApproveAllButton({
       <Dialog open={asOf !== null} onOpenChange={(open) => !open && !approveAll.isPending && setAsOf(null)}>
         <DialogContent>
           <DialogHeader>
+            <DialogMedia tone="success">
+              <CheckCheckIcon />
+            </DialogMedia>
             <DialogTitle>Approve {plural(count, "request")}?</DialogTitle>
             <DialogDescription>
               Every request awaiting approval{scope.length ? ` ${scope.join(", ")}` : ""} will be approved and queued for

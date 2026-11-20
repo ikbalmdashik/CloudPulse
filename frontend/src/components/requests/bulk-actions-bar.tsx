@@ -1,6 +1,6 @@
 "use client";
 
-import { BanIcon, CheckIcon, Loader2Icon, XIcon } from "lucide-react";
+import { BanIcon, CheckIcon, CircleXIcon, Loader2Icon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ReasonDialog } from "@/components/requests/reason-dialog";
@@ -107,6 +107,7 @@ export function BulkActionsBar({
         open={dialog === "reject"}
         onOpenChange={(o) => !o && setDialog(null)}
         title={`Reject ${plural(decidable.length)}?`}
+        icon={<CircleXIcon />}
         description="Every submitter sees this reason. Rejected requests can't be reopened. Requests you submitted yourself aren't included."
         label="Reason"
         confirmLabel="Reject requests"
@@ -119,8 +120,9 @@ export function BulkActionsBar({
         open={dialog === "cancel"}
         onOpenChange={(o) => !o && setDialog(null)}
         title={`Cancel ${plural(cancellable.length)}?`}
+        icon={<BanIcon />}
         description="Queued work is dropped, and running work stops at its next step. This can't be undone."
-        label="Reason (optional)"
+        label="Reason"
         confirmLabel="Cancel requests"
         destructive
         pending={pending("cancel")}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, UserRoundCheckIcon, UserRoundMinusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogMedia,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { type AssignableRole, useChangeRole } from "@/hooks/use-users";
@@ -58,6 +59,9 @@ export function RoleChangeDialog({ change, onClose }: { change: RoleChange | nul
     <Dialog open={change !== null} onOpenChange={(open) => !open && !mutation.isPending && onClose()}>
       <DialogContent>
         <DialogHeader>
+          <DialogMedia tone={change?.role === "OPERATOR" ? "warning" : "info"}>
+            {change?.role === "OPERATOR" ? <UserRoundMinusIcon /> : <UserRoundCheckIcon />}
+          </DialogMedia>
           <DialogTitle>{copy?.title}</DialogTitle>
           <DialogDescription>
             {change && (

@@ -1,7 +1,7 @@
 "use client";
 
-import { Loader2Icon } from "lucide-react";
-import { useState } from "react";
+import { Loader2Icon, MessageSquareTextIcon, TriangleAlertIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogMedia,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
@@ -26,6 +27,7 @@ export function ReasonDialog({
   required,
   pending,
   destructive,
+  icon,
   onConfirm,
 }: {
   open: boolean;
@@ -37,6 +39,8 @@ export function ReasonDialog({
   required?: boolean;
   pending?: boolean;
   destructive?: boolean;
+  /** Shown above the title; defaults to a warning sign for destructive actions. */
+  icon?: ReactNode;
   onConfirm: (reason: string) => void;
 }) {
   const [reason, setReason] = useState("");
@@ -65,6 +69,9 @@ export function ReasonDialog({
           className="grid gap-4"
         >
           <DialogHeader>
+            <DialogMedia tone={destructive ? "destructive" : "default"}>
+              {icon ?? (destructive ? <TriangleAlertIcon /> : <MessageSquareTextIcon />)}
+            </DialogMedia>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
