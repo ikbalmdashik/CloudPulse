@@ -29,4 +29,12 @@ export class RealtimeService {
     this.gateway.server?.to(room).emit(EVENTS.sessionChanged);
     this.gateway.server?.in(room).disconnectSockets(true);
   }
+
+  /**
+   * After a deactivation: the same notice and disconnect. Their sessions are
+   * already revoked, so the tabs' token renewal fails and they are signed out.
+   */
+  userDeactivated(userId: string): void {
+    this.userRoleChanged(userId);
+  }
 }

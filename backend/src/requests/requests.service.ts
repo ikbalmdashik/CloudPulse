@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -13,6 +14,7 @@ import { RealtimeService } from '../realtime/realtime.service.js';
 import { STAFF_ROLES } from '../realtime/realtime.gateway.js';
 import type {
   ApproveAllDto,
+  BulkActionDto,
   ApproveRequestDto,
   CancelRequestDto,
   CreateRequestDto,
@@ -35,6 +37,15 @@ const isStaff = (user: AuthUser) => STAFF_ROLES.includes(user.role);
 
 /** Most requests one "approve all" click approves; the rest wait for another click. */
 export const APPROVE_ALL_LIMIT = 200;
+
+/** What `POST /requests/bulk` did. */
+export interface BulkActionResult {
+  action: BulkActionDto['action'];
+  /** Ids of the requests the action was applied to. */
+  succeeded: string[];
+  /** Requests left unchanged, with the reason (the same error the single action gives). */
+  failed: { id: string; status: number; message: string }[];
+}
 
 /** What `POST /requests/approve-all` did. */
 export interface ApproveAllResult {
@@ -253,6 +264,35 @@ export class RequestsService {
     };
     this.logger.log(`Bulk approval by ${user.id}: ${JSON.stringify(result)}`);
     return result;
+  }
+
+  /**
+   * Applies one action to the requests the user selected. Each request goes
+   * through exactly the same checks as the single-request action (visibility,
+   * four-eyes rule, version, allowed status change), one at a time, so one
+   * that can't be changed is reported and the rest still go through.
+   * Approving and rejecting are for supervisors and admins; anyone can cancel
+   * (their own requests, or any request if they are staff).
+   */
+  async bulk(dto: BulkActionDto, user: AuthUser): Promise<BulkActionResult> {
+    if (dto.action !== 'cancel' && !isStaff(user)) {
+      throw new ForbiddenException('Only supervisors and admins can approve or reject requests');
+    }
+    const succeeded: string[] = [];
+    const failed: BulkActionResult['failed'] = [];
+    for (const { id, version } of dto.items) {
+      try {
+        if (dto.action === 'approve') await this.approve(id, { version }, user);
+        else if (dto.action === 'reject') await this.reject(id, { version, reason: dto.reason! }, user);
+        else await this.cancel(id, { version, reason: dto.reason }, user);
+        succeeded.push(id);
+      } catch (err) {
+        if (!(err instanceof HttpException)) throw err;
+        failed.push({ id, status: err.getStatus(), message: err.message });
+      }
+    }
+    this.logger.log(`Bulk ${dto.action} by ${user.id}: ${succeeded.length} done, ${failed.length} skipped`);
+    return { action: dto.action, succeeded, failed };
   }
 
   /** Supervisor/admin turns a request down, with a reason the submitter sees. Same four-eyes rule. */

@@ -19,6 +19,8 @@ import {
   type ApproveAllDto,
   approveAllSchema,
   type ApproveRequestDto,
+  type BulkActionDto,
+  bulkActionSchema,
   approveRequestSchema,
   type CancelRequestDto,
   cancelRequestSchema,
@@ -71,6 +73,19 @@ export class RequestsController {
   @Get()
   list(@Query({ schema: listRequestsQuerySchema }) query: ListRequestsQuery, @CurrentUser() user: AuthUser) {
     return this.requests.list(query, user);
+  }
+
+  /**
+   * POST /requests/bulk — `{ action: "approve" | "reject" | "cancel", items: [{ id, version }], reason? }`.
+   * Applies the action to each selected request (at most 100) with the same
+   * checks as the single action; ones that can't be changed are reported, not
+   * fatal. Approve and reject: supervisors and admins. Cancel: anyone, for
+   * requests they may cancel. 200 `{ action, succeeded, failed }` · 400 · 403
+   */
+  @Post('bulk')
+  @HttpCode(HttpStatus.OK)
+  bulk(@Body({ schema: bulkActionSchema }) dto: BulkActionDto, @CurrentUser() user: AuthUser) {
+    return this.requests.bulk(dto, user);
   }
 
   /**

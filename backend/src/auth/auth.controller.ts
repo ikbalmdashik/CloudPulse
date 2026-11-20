@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
+import { RateLimited } from '../common/rate-limit/rate-limit.js';
 import type { Env } from '../config/env.js';
 import { UsersRepository } from '../users/users.repository.js';
 import type { AuthUser } from './auth-user.js';
@@ -79,9 +80,11 @@ export class AuthController {
   /**
    * POST /auth/login — email + password → access token (JWT) + refresh token.
    * Adds the account to this browser's saved accounts and makes it active;
-   * other saved accounts stay signed in. 200 · 400 · 401 · 403
+   * other saved accounts stay signed in. Rate-limited.
+   * 200 · 400 · 401 · 403 · 429 too many attempts
    */
   @Public()
+  @RateLimited()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(

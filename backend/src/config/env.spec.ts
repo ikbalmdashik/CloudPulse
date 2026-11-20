@@ -18,6 +18,10 @@ describe('validateEnv', () => {
       WORKER_MAX_ATTEMPTS: 3,
       WORKER_STEP_MS: 2000,
       WORKER_FAILURE_RATE: 0.03,
+      TRUST_PROXY: 'loopback',
+      RATE_LIMIT_ENABLED: true,
+      LOGIN_ATTEMPTS_PER_MINUTE: 5,
+      AUTH_REQUESTS_PER_MINUTE: 20,
       FRONTEND_ORIGIN: 'http://localhost:3000',
     });
   });

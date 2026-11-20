@@ -82,6 +82,28 @@ export function useApproveAll() {
   });
 }
 
+export type BulkAction = "approve" | "reject" | "cancel";
+
+export interface BulkActionResult {
+  action: BulkAction;
+  succeeded: string[];
+  /** Left unchanged, with the same reason the single action would give. */
+  failed: { id: string; status: number; message: string }[];
+}
+
+/**
+ * Applies one action to selected requests. Each item carries the version the
+ * user saw, so one that changed meanwhile is skipped rather than overwritten.
+ */
+export function useBulkAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { action: BulkAction; items: { id: string; version: number }[]; reason?: string }) =>
+      api<BulkActionResult>("/requests/bulk", { method: "POST", body }),
+    onSettled: () => qc.invalidateQueries({ queryKey: requestKeys.all }),
+  });
+}
+
 export function useRequest(id: string) {
   return useQuery({
     queryKey: requestKeys.detail(id),
