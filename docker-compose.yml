@@ -16,6 +16,10 @@ x-backend-env: &backend-env
   WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
   WORKER_STEP_MS: ${WORKER_STEP_MS:-2000}
   WORKER_FAILURE_RATE: ${WORKER_FAILURE_RATE:-0.03}
+  # The Next.js container reaches the API over the Docker network, so trust it
+  # to pass on the client's IP (rate limits are per IP).
+  TRUST_PROXY: ${TRUST_PROXY:-loopback, uniquelocal}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
 
 services:
   postgres:

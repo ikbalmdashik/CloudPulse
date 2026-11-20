@@ -241,6 +241,10 @@ Backend environment variables (`backend/.env`, validated in [`src/config/env.ts`
 | `WORKER_MAX_ATTEMPTS` | `3` | Attempts before a request is marked FAILED |
 | `WORKER_STEP_MS` | `2000` | Average duration of one simulated step |
 | `WORKER_FAILURE_RATE` | `0.03` | Chance a step fails, to demonstrate retries (0 disables) |
+| `TRUST_PROXY` | `loopback` | Proxies allowed to pass on the client IP (Express `trust proxy` syntax); Docker uses `loopback, uniquelocal`. Rate limits are per IP |
+| `RATE_LIMIT_ENABLED` | `true` | Rate-limit login and sign-up |
+| `LOGIN_ATTEMPTS_PER_MINUTE` | `5` | Login or sign-up attempts per minute for one email from one IP (1–1000) |
+| `AUTH_REQUESTS_PER_MINUTE` | `20` | Login and sign-up requests per minute from one IP, across all emails (1–10000) |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | Origin allowed to open WebSocket connections |
 | `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | — | Used only by `npm run seed:admin` |
 
@@ -265,12 +269,13 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 | 403 | Your role doesn't allow it, or it's your own request (four-eyes) |
 | 404 | Not found, or not visible to you |
 | 409 | Conflict: changed since you loaded it (send the latest `version`), wrong state, or duplicate |
+| 429 | Too many login or sign-up attempts; wait for the `Retry-After` seconds |
 
 ### Auth
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| POST | `/auth/login` | public | `{ email, password, rememberMe? }` → `{ user, tokenType, accessToken, accessTokenExpiresAt, refreshToken, sessionExpiresAt, rememberMe }`; also sets cookies. 200 · 400 · 401 · 403 deactivated |
+| POST | `/auth/login` | public | `{ email, password, rememberMe? }` → `{ user, tokenType, accessToken, accessTokenExpiresAt, refreshToken, sessionExpiresAt, rememberMe }`; also sets cookies. Rate-limited. 200 · 400 · 401 · 403 deactivated · 429 |
 | POST | `/auth/refresh` | public | New access and refresh tokens for the active account (cookie), or `{ refreshToken }` for API clients. The old refresh token stops working. 200 · 401 |
 | GET | `/auth/me` | user | The signed-in user `{ id, email, fullName, role }` |
 | GET | `/auth/accounts` | public | Accounts saved in this browser, most recently used first; `active` marks the current one |
@@ -283,9 +288,10 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| POST | `/users` | public | Sign up: `{ email, fullName, password }` → user (always OPERATOR). 201 · 400 · 409 email taken |
+| POST | `/users` | public | Sign up: `{ email, fullName, password }` → user (always OPERATOR). Rate-limited. 201 · 400 · 409 email taken · 429 |
 | GET | `/users?role=&search=&limit=&offset=` | admin | List users, newest first → `{ items, total, limit, offset }` |
 | PATCH | `/users/:id/role` | admin | `{ role: "SUPERVISOR" }` promotes an operator; `{ role: "OPERATOR" }` demotes a supervisor. 200 · 404 · 409 |
+| PATCH | `/users/:id/status` | admin | `{ active: false }` deactivates an operator or supervisor (every session revoked, open tabs signed out); `{ active: true }` reactivates. 200 · 403 own or admin account · 404 · 409 already in that state |
 
 ### Requests
 
@@ -297,6 +303,7 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 | PATCH | `/requests/:id` | staff | `{ version, priority?, note? }`: change priority and/or add a timeline note. 409 finished or stale |
 | POST | `/requests/:id/approve` | staff | `{ version }`: AWAITING_APPROVAL → PENDING, queued for a worker. 403 own request · 409 |
 | POST | `/requests/:id/reject` | staff | `{ version, reason }`: → REJECTED; the reason is shown to the submitter. 403 · 409 |
+| POST | `/requests/bulk` | user | `{ action: "approve" \| "reject" \| "cancel", items: [{ id, version }], reason? }` (1–100 items; `reason` required to reject). Each request gets the same checks as the single action → `{ action, succeeded: [id], failed: [{ id, status, message }] }`. Approve/reject: staff only (403) |
 | POST | `/requests/approve-all` | staff | Bulk approve. Body below → `{ approved, skippedOwn, skippedChanged, remaining }` |
 | POST | `/requests/:id/retry` | staff | `{ version }`: FAILED → PENDING with a fresh set of attempts. 409 |
 | POST | `/requests/:id/cancel` | submitter or staff | `{ version, reason? }`: → CANCELLED; a running job stops at its next step. 409 finished |

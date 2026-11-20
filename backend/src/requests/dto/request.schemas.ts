@@ -110,6 +110,30 @@ export type ApproveRequestDto = z.infer<typeof approveRequestSchema>;
 export const approveAllSchema = z.strictObject({ category, priority, search, since, asOf });
 export type ApproveAllDto = z.infer<typeof approveAllSchema>;
 
+/** Most requests one bulk action takes. */
+export const BULK_LIMIT = 100;
+
+/**
+ * Body of `POST /requests/bulk`: one action applied to the requests the user
+ * selected, each with the `version` they saw (a request changed since is
+ * skipped, not overwritten). `reason` is required to reject, optional to cancel.
+ */
+export const bulkActionSchema = z
+  .strictObject({
+    action: z.enum(['approve', 'reject', 'cancel'], { error: 'must be approve, reject or cancel' }),
+    items: z
+      .array(z.strictObject({ id: z.string().trim().min(1).max(64), version }), { error: 'is required' })
+      .min(1, { error: 'select at least one request' })
+      .max(BULK_LIMIT, { error: `at most ${BULK_LIMIT} requests at once` })
+      .refine((items) => new Set(items.map((i) => i.id)).size === items.length, { error: 'contains the same request twice' }),
+    reason: z.string().trim().max(500, { error: 'must be at most 500 characters' }).optional(),
+  })
+  .refine((v) => v.action !== 'reject' || (v.reason?.length ?? 0) >= 3, {
+    path: ['reason'],
+    error: 'is required to reject: tell the submitters why (at least 3 characters)',
+  });
+export type BulkActionDto = z.infer<typeof bulkActionSchema>;
+
 /** Body of `POST /requests/:id/reject`: the reason is shown to the submitter. */
 export const rejectRequestSchema = z.strictObject({
   version,

@@ -3,7 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { AuthUser } from '../auth/auth-user.js';
 import type { Env } from '../config/env.js';
 import type { RealtimeService } from '../realtime/realtime.service.js';
-import { approveAllSchema, createRequestSchema, listRequestsQuerySchema, updateRequestSchema } from './dto/request.schemas.js';
+import { approveAllSchema, bulkActionSchema, createRequestSchema, listRequestsQuerySchema, updateRequestSchema } from './dto/request.schemas.js';
 import { QueueSignal } from './queue-signal.js';
 import { canTransition, isFinal, type Status } from './request-rules.js';
 import { DuplicateIdempotencyKeyError, generateRequestCode, type RequestsRepository } from './requests.repository.js';
@@ -286,6 +286,57 @@ describe('RequestsService', () => {
       expect(approveAllSchema.safeParse({ since: '5m' }).success).toBe(false);
       expect(approveAllSchema.parse({ since: '5m', asOf: '2026-11-20T10:00:00.000Z' }).asOf).toEqual(asOf);
       expect(approveAllSchema.safeParse({ asOf: '2026-11-20T10:00:00Z', status: 'PENDING' }).success).toBe(false);
+    });
+  });
+
+  describe('bulk actions', () => {
+    it('approves each selected request with its own version check, reporting the ones it skips', async () => {
+      const { service, repo, woken } = setup();
+      const rows: Record<string, ReturnType<typeof row>> = {
+        a: row({ id: 'a' }),
+        own: row({ id: 'own', operatorId: 'sup1' }),
+        stale: row({ id: 'stale', version: 2 }),
+      };
+      repo.findById.mockImplementation(async (id: string) => rows[id] ?? null);
+
+      const result = await service.bulk(
+        { action: 'approve', items: [{ id: 'a', version: 1 }, { id: 'own', version: 1 }, { id: 'stale', version: 1 }, { id: 'gone', version: 1 }] },
+        supervisor,
+      );
+
+      expect(result.succeeded).toEqual(['a']);
+      expect(result.failed.map((f) => [f.id, f.status])).toEqual([
+        ['own', 403],
+        ['stale', 409],
+        ['gone', 404],
+      ]);
+      expect(repo.updateIfVersion).toHaveBeenCalledOnce();
+      expect(woken).toHaveBeenCalledOnce();
+    });
+
+    it('rejects with one reason for all, and lets operators cancel only their own', async () => {
+      const staff = setup();
+      const rejected = await staff.service.bulk({ action: 'reject', items: [{ id: 'r1', version: 1 }], reason: 'Duplicate' }, supervisor);
+      expect(rejected.succeeded).toEqual(['r1']);
+      expect(staff.repo.updateIfVersion.mock.calls[0]![3]).toMatchObject({ message: 'Rejected by Sam: Duplicate' });
+
+      await expect(setup().service.bulk({ action: 'approve', items: [{ id: 'r1', version: 1 }] }, operator)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect((await setup().service.bulk({ action: 'cancel', items: [{ id: 'r1', version: 1 }] }, operator)).succeeded).toEqual(['r1']);
+      const notMine = await setup().service.bulk({ action: 'cancel', items: [{ id: 'r1', version: 1 }] }, otherOperator);
+      expect(notMine.failed).toEqual([{ id: 'r1', status: 404, message: 'Request not found' }]);
+    });
+
+    it('validates the selection', () => {
+      const item = { id: 'r1', version: 1 };
+      expect(bulkActionSchema.safeParse({ action: 'approve', items: [item] }).success).toBe(true);
+      expect(bulkActionSchema.safeParse({ action: 'reject', items: [item] }).success).toBe(false);
+      expect(bulkActionSchema.safeParse({ action: 'approve', items: [] }).success).toBe(false);
+      expect(bulkActionSchema.safeParse({ action: 'approve', items: [item, item] }).success).toBe(false);
+      expect(bulkActionSchema.safeParse({ action: 'delete', items: [item] }).success).toBe(false);
+      const tooMany = Array.from({ length: 101 }, (_, i) => ({ id: `r${i}`, version: 1 }));
+      expect(bulkActionSchema.safeParse({ action: 'cancel', items: tooMany }).success).toBe(false);
     });
   });
 

@@ -7,6 +7,8 @@ import {
   ShieldAlertIcon,
   UserRoundCheckIcon,
   UserRoundMinusIcon,
+  UserRoundPlusIcon,
+  UserRoundXIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { RoleBadge, roleLabel } from "@/components/role-badge";
@@ -21,8 +23,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useMe } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useUsers } from "@/hooks/use-users";
-import { ROLES, type Role } from "@/lib/types";
+import { ROLES, type Role, type User } from "@/lib/types";
 import { type RoleChange, RoleChangeDialog } from "./role-change-dialog";
+import { UserStatusDialog } from "./user-status-dialog";
 
 const PAGE_SIZE = 10;
 const ALL = "ALL";
@@ -34,6 +37,7 @@ export function UsersAdmin() {
   const [role, setRole] = useState<Role | typeof ALL>(ALL);
   const [page, setPage] = useState(0);
   const [change, setChange] = useState<RoleChange | null>(null);
+  const [statusUser, setStatusUser] = useState<User | null>(null);
   const debouncedSearch = useDebouncedValue(search.trim());
 
   const users = useUsers(
@@ -163,6 +167,11 @@ export function UsersAdmin() {
                       <TableCell className="pl-6">
                         <div className="font-medium">{u.fullName}</div>
                         <div className="text-xs text-muted-foreground md:hidden">{u.email}</div>
+                        {!u.isActive && (
+                          <Badge variant="destructive" className="mt-1 lg:hidden">
+                            Deactivated
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="hidden text-muted-foreground md:table-cell">{u.email}</TableCell>
                       <TableCell>
@@ -179,20 +188,37 @@ export function UsersAdmin() {
                         {dateFmt.format(new Date(u.createdAt))}
                       </TableCell>
                       <TableCell className="pr-6 text-right">
-                        {u.role === "OPERATOR" && u.isActive && (
-                          <Button size="sm" variant="outline" onClick={() => setChange({ user: u, role: "SUPERVISOR" })}>
-                            <UserRoundCheckIcon />
-                            <span className="hidden sm:inline">Promote</span>
-                            <span className="sr-only sm:hidden">Promote {u.fullName} to supervisor</span>
-                          </Button>
-                        )}
-                        {u.role === "SUPERVISOR" && u.isActive && (
-                          <Button size="sm" variant="outline" onClick={() => setChange({ user: u, role: "OPERATOR" })}>
-                            <UserRoundMinusIcon />
-                            <span className="hidden sm:inline">Demote</span>
-                            <span className="sr-only sm:hidden">Demote {u.fullName} to operator</span>
-                          </Button>
-                        )}
+                        <div className="flex justify-end gap-2">
+                          {u.role === "OPERATOR" && u.isActive && (
+                            <Button size="sm" variant="outline" onClick={() => setChange({ user: u, role: "SUPERVISOR" })}>
+                              <UserRoundCheckIcon />
+                              <span className="hidden sm:inline">Promote</span>
+                              <span className="sr-only sm:hidden">Promote {u.fullName} to supervisor</span>
+                            </Button>
+                          )}
+                          {u.role === "SUPERVISOR" && u.isActive && (
+                            <Button size="sm" variant="outline" onClick={() => setChange({ user: u, role: "OPERATOR" })}>
+                              <UserRoundMinusIcon />
+                              <span className="hidden sm:inline">Demote</span>
+                              <span className="sr-only sm:hidden">Demote {u.fullName} to operator</span>
+                            </Button>
+                          )}
+                          {/* Admin accounts (yours included) can't be deactivated here. */}
+                          {u.role !== "ADMIN" &&
+                            (u.isActive ? (
+                              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setStatusUser(u)}>
+                                <UserRoundXIcon />
+                                <span className="hidden sm:inline">Deactivate</span>
+                                <span className="sr-only sm:hidden">Deactivate {u.fullName}</span>
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="outline" onClick={() => setStatusUser(u)}>
+                                <UserRoundPlusIcon />
+                                <span className="hidden sm:inline">Reactivate</span>
+                                <span className="sr-only sm:hidden">Reactivate {u.fullName}</span>
+                              </Button>
+                            ))}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -232,6 +258,7 @@ export function UsersAdmin() {
       </Card>
 
       <RoleChangeDialog change={change} onClose={() => setChange(null)} />
+      <UserStatusDialog user={statusUser} onClose={() => setStatusUser(null)} />
     </div>
   );
 }

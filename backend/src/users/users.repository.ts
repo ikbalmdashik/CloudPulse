@@ -110,6 +110,27 @@ export class UsersRepository {
   }
 
   /**
+   * Deactivates or reactivates a non-admin user, only if it isn't already in
+   * that state, in one transaction. Deactivating also revokes every session,
+   * so no refresh token of theirs works any more. Returns the updated user,
+   * or null when no row matched (missing, an admin, or already in that state).
+   */
+  async setActiveIf(id: string, active: boolean) {
+    return await this.db.transaction(async (tx) => {
+      const user = await tx.orm.public.User.select(...PUBLIC_USER_FIELDS)
+        .where({ id, isActive: !active })
+        .where((u) => u.role.neq('ADMIN'))
+        .update({ isActive: active });
+      if (user && !active) {
+        await tx.orm.public.Session.where({ userId: id })
+          .where((s) => s.revokedAt.isNull())
+          .updateAndCount({ revokedAt: new Date() });
+      }
+      return user;
+    });
+  }
+
+  /**
    * Makes the user with this email an active ADMIN, creating it if missing.
    * An existing user's password is left unchanged. Used by the seed command.
    */

@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { Db } from '../prisma/db.js';
 import type { CreateUserDto } from './dto/create-user.schema.js';
 import { verifyPassword } from './password.js';
@@ -41,10 +41,13 @@ describe('UsersRepository.create', () => {
   });
 });
 
-const realtime = { userRoleChanged: vi.fn() };
+const realtime = { userRoleChanged: vi.fn(), userDeactivated: vi.fn() };
 
 describe('UsersService', () => {
-  beforeEach(() => realtime.userRoleChanged.mockClear());
+  beforeEach(() => {
+    realtime.userRoleChanged.mockClear();
+    realtime.userDeactivated.mockClear();
+  });
 
   function setup(repo: Partial<Record<keyof UsersRepository, unknown>>) {
     return new UsersService(repo as unknown as UsersRepository, realtime as unknown as RealtimeService);
@@ -106,6 +109,49 @@ describe('UsersService', () => {
       const err = await service.changeRole('u1', { role: target }, 'admin').catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ConflictException);
       expect((err as Error).message).toMatch(message);
+    });
+  });
+
+  describe('setActive (deactivate / reactivate)', () => {
+    it('deactivates a user and signs out their open tabs', async () => {
+      const setActiveIf = vi.fn().mockResolvedValue({ id: 'u1', isActive: false });
+      await expect(setup({ setActiveIf }).setActive('u1', { active: false }, 'admin')).resolves.toMatchObject({
+        isActive: false,
+      });
+      expect(setActiveIf).toHaveBeenCalledWith('u1', false);
+      expect(realtime.userDeactivated).toHaveBeenCalledWith('u1');
+    });
+
+    it('reactivates without touching live connections', async () => {
+      const setActiveIf = vi.fn().mockResolvedValue({ id: 'u1', isActive: true });
+      await setup({ setActiveIf }).setActive('u1', { active: true }, 'admin');
+      expect(setActiveIf).toHaveBeenCalledWith('u1', true);
+      expect(realtime.userDeactivated).not.toHaveBeenCalled();
+    });
+
+    it("refuses the admin's own account and other admins", async () => {
+      const setActiveIf = vi.fn().mockResolvedValue(null);
+      await expect(setup({ setActiveIf }).setActive('admin', { active: false }, 'admin')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(setActiveIf).not.toHaveBeenCalled();
+
+      const findById = vi.fn().mockResolvedValue({ id: 'a2', role: 'ADMIN', isActive: true });
+      await expect(setup({ setActiveIf, findById }).setActive('a2', { active: false }, 'admin')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('404s for an unknown user and 409s when already in that state', async () => {
+      const setActiveIf = vi.fn().mockResolvedValue(null);
+      await expect(
+        setup({ setActiveIf, findById: vi.fn().mockResolvedValue(null) }).setActive('x', { active: false }, 'admin'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      const inactive = vi.fn().mockResolvedValue({ id: 'u1', role: 'OPERATOR', isActive: false });
+      await expect(setup({ setActiveIf, findById: inactive }).setActive('u1', { active: false }, 'admin')).rejects.toThrow(
+        /already deactivated/,
+      );
+      expect(realtime.userDeactivated).not.toHaveBeenCalled();
     });
   });
 });

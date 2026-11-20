@@ -33,3 +33,13 @@ export function useChangeRole() {
     onSettled: () => qc.invalidateQueries({ queryKey: ["users"] }),
   });
 }
+
+/** Admin: deactivate (signs them out everywhere) or reactivate an operator or supervisor. */
+export function useSetUserStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, active }: { userId: string; active: boolean }) =>
+      api<User>(`/users/${encodeURIComponent(userId)}/status`, { method: "PATCH", body: { active } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["users"] }),
+  });
+}

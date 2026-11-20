@@ -57,6 +57,22 @@ const envSchema = z.object({
    * Per step: with 5-6 steps, 0.03 fails about 15% of attempts.
    */
   WORKER_FAILURE_RATE: z.coerce.number().min(0, { error: 'must be 0-1' }).max(1, { error: 'must be 0-1' }).default(0.03),
+  /**
+   * Which proxies may tell the API the client's real IP (X-Forwarded-For), in
+   * Express "trust proxy" syntax. The default trusts only this machine, where
+   * the Next.js server runs in development; Docker uses "loopback, uniquelocal".
+   * Rate limiting is per IP, so getting this right matters.
+   */
+  TRUST_PROXY: z.string().min(1).default('loopback'),
+  /** Turns login and sign-up rate limiting on or off. */
+  RATE_LIMIT_ENABLED: z
+    .enum(['true', 'false'], { error: 'must be true or false' })
+    .default('true')
+    .transform((v) => v === 'true'),
+  /** Login (or sign-up) attempts per minute for one email from one IP address. */
+  LOGIN_ATTEMPTS_PER_MINUTE: z.coerce.number().int().min(1, { error: 'must be 1-1000' }).max(1000, { error: 'must be 1-1000' }).default(5),
+  /** Login and sign-up requests per minute from one IP address, across all emails. */
+  AUTH_REQUESTS_PER_MINUTE: z.coerce.number().int().min(1, { error: 'must be 1-10000' }).max(10_000, { error: 'must be 1-10000' }).default(20),
   /** Browser origin allowed to open WebSocket connections. */
   FRONTEND_ORIGIN: z.url({ error: 'must be a URL such as http://localhost:3000' }).default('http://localhost:3000'),
 });

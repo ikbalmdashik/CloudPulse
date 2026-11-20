@@ -5,9 +5,11 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ApproveAllButton } from "@/components/requests/approve-all-dialog";
+import { BulkActionsBar } from "@/components/requests/bulk-actions-bar";
 import { PriorityBadge, StatusBadge } from "@/components/requests/badges";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -148,6 +150,18 @@ export function RequestsList() {
     { enabled: canApproveAll },
   );
 
+  // Selected rows belong to this exact view: changing a filter, the search or
+  // the page clears them, so an action never touches rows you can't see.
+  const view = `${params.toString()}|${debouncedSearch}`;
+  const [selection, setSelection] = useState<{ view: string; ids: Set<string> }>({ view, ids: new Set() });
+  const selectedIds = selection.view === view ? selection.ids : new Set<string>();
+  const items = requests.data?.items ?? [];
+  const selectedRows = items.filter((r) => selectedIds.has(r.id));
+  const allSelected = items.length > 0 && selectedRows.length === items.length;
+  const setSelected = (ids: Iterable<string>) => setSelection({ view, ids: new Set(ids) });
+  const toggle = (id: string, on: boolean) =>
+    setSelected(on ? [...selectedIds, id] : [...selectedIds].filter((x) => x !== id));
+
   const total = requests.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -238,6 +252,15 @@ export function RequestsList() {
               />
             </div>
           </div>
+          {selectedRows.length > 0 && (
+            <BulkActionsBar
+              selected={selectedRows}
+              meId={me?.id}
+              staff={staff}
+              onDone={(changed) => setSelected([...selectedIds].filter((id) => !changed.includes(id)))}
+              onClear={() => setSelected([])}
+            />
+          )}
         </CardHeader>
 
         <CardContent className="px-0">
@@ -254,7 +277,16 @@ export function RequestsList() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="pl-6">Request</TableHead>
+                    <TableHead className="w-10 pl-6">
+                      <Checkbox
+                        aria-label="Select all requests on this page"
+                        checked={allSelected}
+                        indeterminate={selectedRows.length > 0 && !allSelected}
+                        disabled={items.length === 0}
+                        onCheckedChange={(on) => setSelected(on ? items.map((r) => r.id) : [])}
+                      />
+                    </TableHead>
+                    <TableHead>Request</TableHead>
                     <TableHead className="hidden md:table-cell">Priority</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="hidden w-40 lg:table-cell">Progress</TableHead>
@@ -266,14 +298,14 @@ export function RequestsList() {
                   {requests.isPending &&
                     Array.from({ length: 4 }, (_, i) => (
                       <TableRow key={i}>
-                        <TableCell className="pl-6" colSpan={6}>
+                        <TableCell className="pl-6" colSpan={7}>
                           <Skeleton className="h-8 w-full" />
                         </TableCell>
                       </TableRow>
                     ))}
                   {requests.data?.items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                      <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                         {status === ACTIVE && !debouncedSearch && category === ALL && priority === ALL && since === ANY_TIME
                           ? "No active requests right now."
                           : "No requests match these filters."}
@@ -284,9 +316,17 @@ export function RequestsList() {
                     <TableRow
                       key={r.id}
                       className="cursor-pointer"
+                      data-state={selectedIds.has(r.id) ? "selected" : undefined}
                       onClick={() => router.push(`/requests/${r.id}`)}
                     >
-                      <TableCell className="max-w-0 pl-6 sm:max-w-none">
+                      <TableCell className="w-10 pl-6" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          aria-label={`Select ${r.code}`}
+                          checked={selectedIds.has(r.id)}
+                          onCheckedChange={(on) => toggle(r.id, on === true)}
+                        />
+                      </TableCell>
+                      <TableCell className="max-w-0 sm:max-w-none">
                         <Link
                           href={`/requests/${r.id}`}
                           className="block truncate font-medium hover:underline"
