@@ -42,7 +42,7 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
-  showCloseButton = true,
+  showCloseButton = false,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
@@ -84,7 +84,35 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("flex flex-col items-center gap-2 text-center", className)}
+      {...props}
+    />
+  )
+}
+
+const dialogMediaTones = {
+  default: "bg-muted text-foreground",
+  info: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  success: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  warning: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  destructive: "bg-destructive/10 text-destructive",
+} as const
+
+/** Round icon badge shown above a dialog's title; `tone` says what kind of action it is. */
+function DialogMedia({
+  className,
+  tone = "default",
+  ...props
+}: React.ComponentProps<"div"> & { tone?: keyof typeof dialogMediaTones }) {
+  return (
+    <div
+      data-slot="dialog-media"
+      aria-hidden
+      className={cn(
+        "mb-1 flex size-12 shrink-0 items-center justify-center rounded-full *:[svg:not([class*='size-'])]:size-6",
+        dialogMediaTones[tone],
+        className
+      )}
       {...props}
     />
   )
@@ -102,12 +130,15 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "-mx-4 -mb-4 grid grid-cols-1 gap-2 rounded-b-xl border-t bg-muted/50 p-4 *:min-w-28",
+        "[&:has(>*:nth-child(2))]:grid-cols-2",
+        "[&:has(>*:nth-child(3))]:grid-cols-3",
         className
       )}
       {...props}
     >
       {children}
+
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant="outline" />}>
           Close
@@ -122,7 +153,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "font-heading text-base leading-none font-medium",
+        "font-heading text-lg leading-snug font-semibold text-balance",
         className
       )}
       {...props}
@@ -138,7 +169,7 @@ function DialogDescription({
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        "text-sm leading-relaxed text-pretty text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
         className
       )}
       {...props}
@@ -153,6 +184,7 @@ export {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogMedia,
   DialogOverlay,
   DialogPortal,
   DialogTitle,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, UserRoundPlusIcon, UserRoundXIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogMedia,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useSetUserStatus } from "@/hooks/use-users";
@@ -37,6 +38,9 @@ export function UserStatusDialog({ user, onClose }: { user: User | null; onClose
     <Dialog open={user !== null} onOpenChange={(open) => !open && !mutation.isPending && onClose()}>
       <DialogContent>
         <DialogHeader>
+          <DialogMedia tone={deactivate ? "destructive" : "success"}>
+            {deactivate ? <UserRoundXIcon /> : <UserRoundPlusIcon />}
+          </DialogMedia>
           <DialogTitle>{deactivate ? "Deactivate this user?" : "Reactivate this user?"}</DialogTitle>
           <DialogDescription>
             {user && (

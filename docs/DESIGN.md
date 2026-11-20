@@ -50,7 +50,7 @@ flowchart TB
         App["app/ — routes<br/>(auth)/login, register<br/>(app)/ dashboard, requests, requests/[id], requests/new, admin/users"]
         Comp["components/ — app-shell, back-button, breadcrumbs,<br/>requests/*, admin/*, auth/*, ui/* (shadcn on Base UI)"]
         Hooks["hooks/ — use-auth, use-requests, use-users<br/>(TanStack Query: server state)"]
-        Lib["lib/ — api (fetch + refresh), realtime (Socket.IO),<br/>validation (zod), labels, types"]
+        Lib["lib/ — api (fetch + refresh), realtime (Socket.IO),<br/>auth-sync (cross-tab), validation (zod), labels, types"]
         RT["realtime-provider — applies pushed events to the query cache"]
         App --> Comp --> Hooks --> Lib
         RT --> Hooks
@@ -58,12 +58,12 @@ flowchart TB
 
     subgraph Backend["backend/src"]
         direction TB
-        Auth["auth/ — controller, service, sessions repo,<br/>AuthGuard (global), RolesGuard, cookies"]
-        Users["users/ — controller, service, repository,<br/>password (scrypt)"]
-        Req["requests/ — controller, service, repository,<br/>request-rules (lifecycle), dto (zod), queue-signal"]
+        Auth["auth/ — controller, service, sessions repo,<br/>AuthGuard (global), RolesGuard, cookies,<br/>rate-limited login"]
+        Users["users/ — controller, service, repository,<br/>password (scrypt), role changes and deactivation"]
+        Req["requests/ — controller, service, repository,<br/>request-rules (lifecycle), dto (zod), bulk actions, queue-signal"]
         Worker["worker/ — WorkerService (pool), JobsRepository,<br/>job-steps (simulation), /queue/stats"]
         Realtime["realtime/ — gateway (rooms, auth), service (emit)"]
-        Common["config/ (env validation), common/filters (errors),<br/>database/, prisma/ (contract, client)"]
+        Common["config/ (env validation), common/filters (errors),<br/>common/rate-limit (throttler), database/, prisma/ (contract, client)"]
         Req --> Realtime
         Worker --> Req
         Users --> Realtime
@@ -81,7 +81,7 @@ flowchart TB
 | **Controller** | Route, status code, request validation (zod via `StandardSchemaValidationPipe`), `@Roles` | HTTP |
 | **Service** | Business rules: lifecycle, four-eyes rule, optimistic locking, who sees what, emitting events | Neither HTTP nor SQL |
 | **Repository** | Queries and transactions through the Prisma ORM; one place per table | SQL |
-| **Cross-cutting** | `AuthGuard` (every route needs a login unless `@Public`), `RolesGuard` (role read from the database each time), `AllExceptionsFilter` (one error shape, no leaked internals), `ConfigModule` (validated env) | — |
+| **Cross-cutting** | `AuthGuard` (every route needs a login unless `@Public`), `RolesGuard` (role read from the database each time), `AllExceptionsFilter` (one error shape, no leaked internals), `ConfigModule` (validated env), `ThrottlerGuard` via `@RateLimited()` on login and sign-up | — |
 
 The lifecycle rules (allowed status changes) live in one file, [`request-rules.ts`](../backend/src/requests/request-rules.ts), used by both validation and services.
 
@@ -140,6 +140,7 @@ erDiagram
         jsonb payload "environment, target"
         jsonb result
         text error_reason
+        text error_code
         int version "optimistic lock"
         uuid operator_id FK
         uuid approved_by_id FK
@@ -147,6 +148,8 @@ erDiagram
         timestamp created_at
         timestamp started_at
         timestamp completed_at
+        timestamp updated_at
+        timestamp cancel_requested_at "stop at next step"
         timestamp deleted_at "soft delete"
     }
     execution_jobs {
@@ -158,6 +161,8 @@ erDiagram
         enum status "QUEUED..CANCELLED"
         int attempt
         int max_attempts
+        int progress
+        text logs
         timestamp queued_at
         timestamp started_at
         timestamp finished_at
@@ -185,14 +190,14 @@ erDiagram
 | Append-only **`request_events`** | The timeline and the audit trail (NFR-8). Rows are only ever inserted. |
 | **`version`** column | Optimistic locking: every update is `WHERE id = ? AND version = ?`, and a stale write gets 409 (FR-18) |
 | Refresh tokens stored as **SHA-256 hashes** | A database leak doesn't give away sessions |
-| **Foreign-key actions** | Deleting a user is restricted while they own requests; approver and actor become NULL; jobs and events cascade with their request |
+| **Foreign-key actions** | Deleting a user is restricted while they own requests; their sessions cascade; approver and actor become NULL; jobs and events cascade with their request |
 
 ### Constraints and indexes
 
 - **CHECK constraints:** progress between 0 and 100 (requests, jobs, events); `version ≥ 1`; `attempt ≥ 1`.
 - **Unique:** `users.email`, `requests.code`, `requests.idempotency_key`, `sessions.refresh_token_hash`.
 - **`jobs_one_active_per_request`:** a unique partial index on `request_id WHERE status IN ('QUEUED','RUNNING')`. The database itself guarantees that a request never has two active jobs (NFR-4).
-- **Partial indexes** for the hot queries, all `WHERE deleted_at IS NULL`: the queue (`status, priority, created_at`), per-operator lists, category/status, in-flight requests, and job claiming (`status, queued_at`). A GIN index on `payload` supports JSON search.
+- **Partial indexes** for the hot queries on requests, all `WHERE deleted_at IS NULL`: the queue (`status, priority, created_at`), per-operator lists, category/status and in-flight requests. Jobs have a claim index (`status, queued_at`) and a partial lease index (`locked_until WHERE status = 'RUNNING'`). A GIN index on `payload` supports JSON search.
 
 ## 4. REST API design
 
@@ -208,7 +213,7 @@ erDiagram
   ```
 
   Validation errors put one message per field in `message[]`.
-- **Status codes:** 400 invalid input · 401 not logged in · 403 not allowed · 404 missing or not yours (hidden from operators, so IDs can't be probed) · 409 conflict (stale version, wrong state, duplicate) · 500 generic.
+- **Status codes:** 400 invalid input · 401 not logged in · 403 not allowed · 404 missing or not yours (hidden from operators, so IDs can't be probed) · 409 conflict (stale version, wrong state, duplicate) · 429 too many login or sign-up attempts · 500 generic.
 - **Lists** return `{ items, total, limit, offset }`.
 
 The endpoint reference with request and response details is in the [README](../README.md#api-reference).
@@ -252,7 +257,7 @@ Retries inside one run (attempt 1 → 2 → 3) keep the request IN_PROGRESS and 
 | Event | Payload | Sent to | Sent when |
 |---|---|---|---|
 | `request.changed` | `{ request, event }`: the full request row and the timeline event that changed it | `staff` + `user:<submitter>` | Any change: created, approved, rejected, picked up, progress, completed, failed, cancelled, retried, priority or note |
-| `session.changed` | none | `user:<id>` | That user's role changed. Their sockets are then disconnected, so they reconnect with a new token and join or leave `staff`. |
+| `session.changed` | none | `user:<id>` | That user's role changed or they were deactivated. Their sockets are then disconnected, so they reconnect with a new token and join or leave `staff` (a deactivated user's refresh fails and they are signed out). |
 
 There are no client → server events: writes go through REST.
 
@@ -343,7 +348,7 @@ flowchart LR
 | A worker crashes mid-job | Its lease expires; a reaper takes the job over (also by compare-and-set) and retries it |
 | The server restarts | Graceful shutdown aborts the slots and hands their jobs back to the queue. On startup, approved requests without a job are re-queued. |
 | A worker and a person change a request at once | Every change is conditional on the request's version or status; the loser gets a conflict and rereads |
-| Bulk approval collides with a single approval | Each request in the bulk is approved with its own version check; collisions are counted as "changed meanwhile" and skipped |
+| Bulk approval or a bulk action collides with a single change | Each request in the bulk is changed with its own version check; collisions are counted as "changed meanwhile" (approve-all) or reported per request in `failed` (bulk actions) and skipped |
 
 Because all coordination goes through PostgreSQL, **several API instances can share one queue** without processing anything twice.
 
@@ -353,6 +358,8 @@ Because all coordination goes through PostgreSQL, **several API instances can sh
 - **Tokens:** a short-lived JWT access token (HS256, 10 min, with issuer and audience checked) plus a long-lived random refresh token. The refresh token rotates on every use (each works once) and is stored only as a hash.
 - **Cookies:** httpOnly (scripts can't read them), SameSite=Lax (other sites can't send them on POST), Secure in production. Multi-account support keeps one refresh cookie per saved account.
 - **Authorization:** `RolesGuard` reads the user's current role from the database on each request, so a demotion takes effect at once. Operators get 404 for other users' requests. Staff can't approve or reject their own requests.
+- **Rate limiting:** login and sign-up are limited per IP + email (`LOGIN_ATTEMPTS_PER_MINUTE`) and per IP (`AUTH_REQUESTS_PER_MINUTE`) with `@nestjs/throttler`; over the limit returns 429. `TRUST_PROXY` controls which proxies may set the client IP.
+- **Deactivation:** an admin can deactivate an operator or supervisor; their sessions are revoked, login returns 403 and open tabs are signed out.
 - **Input:** strict zod schemas on every body and query; LIKE patterns are escaped.
 - **Errors:** unexpected errors are logged with their stack but answered with a generic 500.
 - **WebSockets:** origin check, token authentication, disconnect at token expiry, push-only.
@@ -362,17 +369,17 @@ Because all coordination goes through PostgreSQL, **several API instances can sh
 | Area | Choice | Why this over alternatives |
 |---|---|---|
 | Language | **TypeScript** (both sides) | One language end to end. Types are shared in spirit across the API, ORM and UI, and the compiler catches contract drift. |
-| Backend framework | **NestJS 12** | Modules, dependency injection, guards, pipes and filters give the required layered architecture out of the box. First-party WebSocket and config packages. More structure than bare Express or Fastify for a multi-module app. |
+| Backend framework | **NestJS 12** | Modules, dependency injection, guards, pipes and filters give the required layered architecture out of the box. First-party WebSocket, config and rate-limiting (throttler) packages. More structure than bare Express or Fastify for a multi-module app. |
 | Real-time | **Socket.IO** (`@nestjs/websockets`) | WebSocket with automatic reconnect and backoff, rooms for "who sees what", and auth middleware. Raw `ws` would mean rebuilding all of these. |
 | Concurrency | **Async worker pool in-process + PostgreSQL queue** | Processing is I/O-bound, so async tasks on the event loop are the idiomatic Node.js answer. Worker threads only help CPU-bound work. A database queue avoids running Redis or RabbitMQ while staying safe for several instances (compare-and-set, leases). Swapping in BullMQ later only touches `worker/`. |
 | Database | **PostgreSQL 18** | Relational data with real relationships and constraints (FK, CHECK, partial unique indexes), transactions for "change + event + job" atomically, JSONB for payloads. |
-| ORM | **Prisma ORM (Postgres)** | Typed queries generated from one schema contract, versioned migrations, transactions. |
+| ORM | **Prisma ORM 8 (`@prisma/orm-postgres`)** | Typed queries generated from one schema contract, versioned migrations, transactions. |
 | Validation | **zod 4** | One schema library on both sides; the Standard Schema pipe in NestJS validates bodies and queries without classes. |
 | Frontend | **Next.js 16 + React 19** | File-based routing, layouts, a server-side rewrite for one-origin cookies, and the React Compiler. |
 | Server state | **TanStack Query** | Caching, deduplication, refetch-on-focus and placeholders. Pushed WebSocket events update the same cache, so there is one source of truth. |
 | Forms | **react-hook-form + zod** | Fast uncontrolled forms with the same validation messages style as the API. |
-| UI | **Tailwind CSS + shadcn/ui on Base UI**, lucide icons, sonner toasts | Accessible primitives, a consistent design system, responsive utilities and dark mode. |
-| Tests / quality | **Vitest**, oxlint, ESLint, Prettier | Fast ESM-native tests (104 backend unit tests); type-aware linting. |
+| UI | **Tailwind CSS 4 + shadcn/ui (base-nova style, zinc base color) on Base UI**, lucide icons, sonner toasts | Accessible primitives, a consistent design system, responsive utilities and dark mode. |
+| Tests / quality | **Vitest**, oxlint, ESLint, Prettier | Fast ESM-native tests (114 backend unit tests); type-aware linting. |
 | Containers | **Docker + Docker Compose** | `docker compose up --build` runs the whole stack (database, migrations, API, web) the same way everywhere; multi-stage images run as a non-root user. |
 | CI | **GitHub Actions** | Every push and pull request is linted, typechecked, tested and built, including both Docker images, so `main` always builds. |
 

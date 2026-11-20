@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, Loader2Icon, RotateCcwIcon, ShieldAlertIcon, XIcon } from "lucide-react";
+import { BanIcon, CheckIcon, CircleXIcon, Loader2Icon, RotateCcwIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ReasonDialog } from "@/components/requests/reason-dialog";
@@ -182,6 +182,7 @@ export function StaffControls({ request }: { request: ServiceRequest }) {
         open={rejectOpen && awaiting}
         onOpenChange={setRejectOpen}
         title="Reject this request?"
+        icon={<CircleXIcon />}
         description="The submitter will see your reason. Rejected requests can't be reopened; they can submit a new one."
         label="Reason"
         confirmLabel="Reject request"
@@ -209,6 +210,7 @@ export function StaffControls({ request }: { request: ServiceRequest }) {
         open={cancelOpen && !finished}
         onOpenChange={setCancelOpen}
         title="Cancel this request?"
+        icon={<BanIcon />}
         description={
           request.status === "IN_PROGRESS"
             ? "The CPU stops at its current step. Cancelled requests can't be reopened."

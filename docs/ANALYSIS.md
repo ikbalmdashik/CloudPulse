@@ -25,9 +25,9 @@ A growing IT service organization handles infrastructure and cloud requests (new
 
 | Role | Who | What they need |
 |---|---|---|
-| **Operator** | Engineers and service desk staff who raise requests | Submit requests quickly, see only their own, follow progress live, cancel if plans change |
-| **Supervisor** | Team leads who run the queue | See every request, approve or reject, change priority, add notes, retry failures, approve in bulk |
-| **Admin** | Platform owner | Everything a supervisor can do, plus managing users and their roles |
+| **Operator** | Engineers and service desk staff who raise requests | Submit requests quickly, see only their own, follow progress live, cancel if plans change (one or several at once) |
+| **Supervisor** | Team leads who run the queue | See every request, approve or reject, change priority, add notes, retry failures, approve, reject or cancel in bulk |
+| **Admin** | Platform owner | Everything a supervisor can do, plus managing users: their roles, and deactivating or reactivating accounts |
 
 Anyone can sign up; new accounts start as **Operator**. An admin promotes people to Supervisor. The first admin is created with a seed script.
 
@@ -46,7 +46,9 @@ Anyone can sign up; new accounts start as **Operator**. An admin promotes people
 **In scope**
 
 - Sign-up, login, sessions with "Remember me", several saved accounts per browser, logout
-- Role-based access (Operator, Supervisor, Admin) and user role management
+- Role-based access (Operator, Supervisor, Admin), user role management and account deactivation
+- Bulk actions on selected requests (approve, reject, cancel) and approve-all for a filtered view
+- Rate limiting of login and sign-up
 - The request lifecycle: submit → approve or reject → queued → processing → completed, failed or cancelled; plus retry
 - Background processing with configurable concurrency, retries and crash recovery
 - Live updates over WebSockets for lists, details, the queue panel and notifications
@@ -72,7 +74,7 @@ Priority: **M** = must have (the assignment's required features), **S** = should
 | FR-2 | A user can log in with email and password and choose "Remember me" (30 days, survives browser restarts) or a normal session (8 hours, ends when the browser closes). | M |
 | FR-3 | A browser can keep up to 5 accounts signed in and switch between them without a password. Logging in again as an account already signed in shows a warning first. | S |
 | FR-4 | A user can log out of one account or of every account in the browser. | M |
-| FR-5 | An admin can list and search users and promote an Operator to Supervisor or demote a Supervisor to Operator. The change takes effect immediately, including on open WebSocket connections. | S |
+| FR-5 | An admin can list and search users and promote an Operator to Supervisor or demote a Supervisor to Operator. The change takes effect immediately, including on open WebSocket connections. An admin can also deactivate an Operator or Supervisor (not themselves or another admin), which revokes every session and signs out their open tabs, and reactivate them later. | S |
 | FR-6 | Every API route checks the user's current role on each request; operators can only see their own requests. | M |
 
 ### 2.2 Service requests
@@ -86,7 +88,7 @@ Priority: **M** = must have (the assignment's required features), **S** = should
 | FR-11 | Users can search by code or title and filter by status (or "Active"), category, priority and submission time (last 1 minute, 5, 15 or 30 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days). Filters are kept in the URL so links and Back keep the view. | M |
 | FR-12 | A request page shows its details, live progress, current step, latest job attempt and a full event timeline. | M |
 | FR-13 | A supervisor or admin can approve or reject (with a reason) a request awaiting approval, but never one they submitted. | M |
-| FR-14 | A supervisor or admin can approve every request awaiting approval that matches the current filters in one action. Their own requests are skipped, and requests submitted after they opened the confirmation are left out. | S |
+| FR-14 | A supervisor or admin can approve every request awaiting approval that matches the current filters in one action. Their own requests are skipped, and requests submitted after they opened the confirmation are left out. Users can also select requests in the list and approve, reject (with one reason) or cancel them together; each is checked like the single action, and any that can't change are reported. | S |
 | FR-15 | A supervisor or admin can change a request's priority (which moves it in the queue) and add notes to its timeline. | M |
 | FR-16 | The submitter, or any supervisor or admin, can cancel a request that hasn't finished. A running job stops at its next step. | M |
 | FR-17 | A supervisor or admin can retry a failed request from the start. | S |
@@ -121,10 +123,10 @@ Priority: **M** = must have (the assignment's required features), **S** = should
 | NFR-4 | **Concurrency and correctness** | A request is never processed twice at once, even with several worker pools. | Running a provisioning job twice wastes money or breaks things. | Atomic job claim (compare-and-set), lock token plus lease, and a unique partial index allowing only one active job per request. |
 | NFR-5 | **Reliability** | No request is lost if a worker or the server stops mid-job. | Requests are commitments to users. | Leases expire and jobs are re-queued; orphaned approved requests are re-queued on startup; graceful shutdown hands running jobs back. |
 | NFR-6 | **Data integrity** | Concurrent edits never silently overwrite each other; the history can be trusted. | Several supervisors work the same queue. | Optimistic locking (`version`), status changes allowed only along defined transitions, final states never change, CHECK constraints in the database. |
-| NFR-7 | **Security** | Only signed-in users get in; each user sees only what their role allows; sessions resist theft. | Requests describe production infrastructure. | scrypt password hashing (OWASP cost), short-lived JWT access tokens (10 min) plus rotating refresh tokens stored only as hashes, httpOnly/SameSite/Secure cookies, role read from the database on each request, the same response time for unknown emails and wrong passwords, generic 500 errors, WebSocket origin check, and sockets closed when their token expires. |
+| NFR-7 | **Security** | Only signed-in users get in; each user sees only what their role allows; sessions resist theft. | Requests describe production infrastructure. | scrypt password hashing (OWASP cost), short-lived JWT access tokens (10 min) plus rotating refresh tokens stored only as hashes, httpOnly/SameSite/Secure cookies, rate limiting of login and sign-up per IP and per email, role read from the database on each request, the same response time for unknown emails and wrong passwords, generic 500 errors, WebSocket origin check, and sockets closed when their token expires. |
 | NFR-8 | **Accountability** | Every change records who made it and when. | Audit and post-incident review (O3). | Append-only `request_events` table; `approved_by_id` and `approved_at` on each request. |
 | NFR-9 | **Scalability** | Able to grow from one server to several without redesign. | The organization is growing. | Stateless API (JWT), database-backed queue safe for several workers, configurable `WORKER_CONCURRENCY`. Several servers would need the Socket.IO Redis adapter (see DESIGN §8). |
 | NFR-10 | **Availability** | The UI degrades gracefully when the connection drops. | Networks fail. | Live status indicator, automatic reconnect with backoff, token refresh then reconnect, and a full refetch after reconnecting. |
 | NFR-11 | **Usability** | A new user can submit and follow a request without training. | Adoption. | Plain-language labels and hints per category, inline validation messages, toasts, empty and error states, breadcrumbs and Back. |
-| NFR-12 | **Maintainability** | Clear layers and one source of truth for rules. | The system will keep changing. | Controller → service → repository on the backend; lifecycle rules in one file; typed contract shared by ORM and code; zod schemas; 104 unit tests. |
+| NFR-12 | **Maintainability** | Clear layers and one source of truth for rules. | The system will keep changing. | Controller → service → repository on the backend; lifecycle rules in one file; typed contract shared by ORM and code; zod schemas; 114 unit tests. |
 | NFR-13 | **Configurability** | Behaviour is tuned without code changes, and bad settings fail fast. | Different environments need different settings. | Every setting is an environment variable validated with zod at startup, with a clear error message. |

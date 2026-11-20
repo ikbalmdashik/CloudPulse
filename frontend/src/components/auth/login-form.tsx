@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CircleAlertIcon, Loader2Icon } from "lucide-react";
+import { CircleAlertIcon, CircleCheckIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -95,6 +95,7 @@ export function LoginForm() {
           <FieldGroup>
             {params.get("registered") && !login.error && (
               <Alert>
+                <CircleCheckIcon />
                 <AlertDescription>Account created. Log in to get started.</AlertDescription>
               </Alert>
             )}

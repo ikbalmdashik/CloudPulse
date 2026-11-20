@@ -16,12 +16,12 @@ A real-time service request management system for IT infrastructure and cloud op
 - **Live everywhere.** Lists, detail pages, progress bars and the queue panel update the moment something changes, with notifications for the people involved. No polling.
 - **Concurrent background processing.** A configurable number of worker slots (`CPU-1 … CPU-n`) run requests in parallel by priority, with automatic retries, exponential backoff and crash recovery.
 - **Roles.**
-  - **Operators** see their own requests.
-  - **Supervisors** see everything and can approve, reject, prioritize, add notes, retry and approve in bulk.
-  - **Admins** can also manage users' roles.
+  - **Operators** see their own requests and can cancel them, one at a time or several at once.
+  - **Supervisors** see everything and can approve, reject, cancel, prioritize, add notes and retry, on one request or on a selection, and approve the whole filtered view at once.
+  - **Admins** can also promote and demote users, and deactivate or reactivate accounts (deactivation signs the user out everywhere at once).
 - **Search and filters.** Search by code or title; filter by status, category, priority and time submitted (last 1 minute up to 30 days). Filters live in the URL.
-- **Bulk approval.** Approve every request in the current filtered view in one click, safely.
-- **Accounts.** Sign up, log in with "Remember me", up to 5 accounts per browser with one-click switching.
+- **Bulk actions.** Select requests in the list to approve, reject or cancel them together (each one is checked like a single action), or approve every request in the current filtered view in one click, safely.
+- **Accounts.** Sign up, log in with "Remember me", up to 5 accounts per browser with one-click switching. Login and sign-up are rate-limited per IP and per email.
 - **Responsive UI** with light and dark themes, breadcrumbs and Back navigation.
 
 ## Architecture overview
@@ -44,10 +44,10 @@ Full diagrams and reasoning are in [docs/DESIGN.md](docs/DESIGN.md).
 
 | Layer | Technologies |
 |---|---|
-| Frontend | Next.js 16, React 19 (React Compiler), TypeScript, TanStack Query 5, react-hook-form + zod, Tailwind CSS, shadcn/ui on Base UI, Socket.IO client, sonner, next-themes |
-| Backend | Node.js, NestJS 12, TypeScript, Socket.IO (`@nestjs/websockets`), `@nestjs/jwt`, `@nestjs/config`, zod 4 |
-| Database | PostgreSQL 18, Prisma ORM (Postgres) with versioned migrations |
-| Tooling | Vitest, oxlint, ESLint, Prettier, Docker + Docker Compose, GitHub Actions |
+| Frontend | Next.js 16, React 19 (React Compiler), TypeScript, TanStack Query 5, react-hook-form + zod, Tailwind CSS 4, shadcn/ui (base-nova style, zinc base color) on Base UI, lucide icons, Socket.IO client, sonner, next-themes |
+| Backend | Node.js 24, NestJS 12, TypeScript, Socket.IO (`@nestjs/websockets`), `@nestjs/jwt`, `@nestjs/config`, `@nestjs/throttler`, zod 4 |
+| Database | PostgreSQL 18, Prisma ORM 8 (`@prisma/orm-postgres`) with versioned migrations |
+| Tooling | Vitest, oxlint (backend), ESLint (frontend), Prettier, Docker + Docker Compose, GitHub Actions |
 
 Why each was chosen: [docs/DESIGN.md §8](docs/DESIGN.md#8-technology-stack-and-justification).
 
@@ -55,42 +55,53 @@ Why each was chosen: [docs/DESIGN.md §8](docs/DESIGN.md#8-technology-stack-and-
 
 ```
 CloudPulse/
-├── docker-compose.yml        # The whole stack in Docker
-├── .env.example              # Settings for the Docker stack
+├── docker-compose.yml        # The whole stack in Docker (reads a .env next to it)
 ├── .github/workflows/ci.yml  # CI: lint, typecheck, test, build, Docker images
-├── docs/                     # Analysis and design documents
+├── docs/                     # ANALYSIS.md and DESIGN.md
 ├── backend/                  # NestJS API, WebSocket gateway, worker pool
 │   ├── Dockerfile
 │   ├── docker-compose.yml    # PostgreSQL only, for local development
-│   ├── migrations/           # Versioned database migrations
+│   ├── .env.example          # Backend settings (copy to .env)
+│   ├── prisma.config.ts      # Prisma CLI config: contract path, DATABASE_URL
+│   ├── migrations/           # Versioned database migrations and contract snapshots
 │   └── src/
-│       ├── auth/             # Login, sessions, guards, cookies
-│       ├── users/            # Sign-up, user admin, password hashing
-│       ├── requests/         # Request API, lifecycle rules, repository
-│       ├── worker/           # Background worker pool, job queue, /queue/stats
-│       ├── realtime/         # Socket.IO gateway and event emitter
+│       ├── main.ts           # Bootstrap: trust proxy, validation pipe, error filter, Socket.IO adapter
+│       ├── app.module.ts     # Root module: config, rate limiting, feature modules
+│       ├── auth/             # Login, sessions, saved accounts, cookies, JWT, guards
+│       ├── users/            # Sign-up, user admin (roles, deactivation), password hashing
+│       ├── requests/         # Request API, bulk actions, lifecycle rules, repository
+│       ├── worker/           # Background worker pool, job steps, job queue, /queue/stats
+│       ├── realtime/         # Socket.IO gateway, adapter and event emitter
 │       ├── config/           # Environment validation
-│       ├── common/           # Global error filter
+│       ├── common/           # filters/ (global error filter), rate-limit/ (login and sign-up limits)
+│       ├── database/         # Global module that provides the Prisma client
 │       ├── prisma/           # Schema contract and DB client
 │       └── scripts/          # seed-admin
 └── frontend/                 # Next.js web app
     ├── Dockerfile
+    ├── components.json       # shadcn/ui config (base-nova style, zinc base color)
+    ├── next.config.ts        # /api/* rewrite to the backend, standalone output, React Compiler
     └── src/
-        ├── app/              # Routes: (auth) login/register, (app) dashboard, requests, admin
-        ├── components/       # App shell, requests, admin, auth, ui primitives
-        ├── hooks/            # Data hooks (TanStack Query)
-        └── lib/              # API client, realtime client, validation, labels, types
+        ├── proxy.ts          # Sends visitors without a session cookie to /login
+        ├── app/              # Routes: (auth) login/register, (app) dashboard, requests, requests/new, requests/[id], admin/users
+        ├── components/       # App shell, sidebar, dashboard, queue panel; requests/, admin/, auth/, ui/ (shadcn primitives)
+        ├── hooks/            # Data hooks (TanStack Query) and small UI hooks
+        └── lib/              # API client, realtime client, cross-tab auth sync, validation, labels, types
 ```
 
 ## Quick start with Docker
 
 Runs the whole stack (PostgreSQL, migrations, the API with its workers, and the web app) with one command. You need only Docker.
 
+Create a `.env` file next to `docker-compose.yml` with at least:
+
 ```bash
-cp .env.example .env
+JWT_SECRET=<at least 32 random characters>
+ADMIN_EMAIL=admin@cloudpulse.local
+ADMIN_PASSWORD=<at least 8 characters, with a letter and a number>
 ```
 
-In `.env`, set `JWT_SECRET` (at least 32 random characters) and `ADMIN_PASSWORD` (at least 8 characters, with a letter and a number). Then:
+Optional: `ADMIN_NAME`, `POSTGRES_PASSWORD` (default `postgres123`), `FRONTEND_PORT`, `BACKEND_PORT`, `WORKER_CONCURRENCY`, `WORKER_STEP_MS`, `WORKER_FAILURE_RATE`, `TRUST_PROXY`, `RATE_LIMIT_ENABLED`. Then:
 
 ```bash
 docker compose up --build
@@ -100,7 +111,7 @@ Open http://localhost:3000 and log in as `ADMIN_EMAIL`.
 
 - **What starts:**
   - `postgres`
-  - `migrate`: applies migrations, creates the admin if it doesn't exist, then exits
+  - `migrate`: applies migrations, creates (or promotes) the admin from `ADMIN_EMAIL` if it is set, then exits
   - `backend` on port 4000
   - `frontend` on port 3000
 - **Ports in use?** Set `FRONTEND_PORT` and `BACKEND_PORT` in `.env`.
@@ -135,7 +146,7 @@ This starts PostgreSQL 18 on `localhost:5432` with database `cloudpulse_db` (use
 cp .env.example .env
 ```
 
-Uncomment the lines in `.env` and set `JWT_SECRET` to a random string of at least 32 characters:
+In `.env`, set `DATABASE_URL` to `postgresql://postgres:postgres123@localhost:5432/cloudpulse_db` (matches `backend/docker-compose.yml`) and `JWT_SECRET` to a random string of at least 32 characters:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
@@ -194,10 +205,12 @@ cd backend && npm run build && npm run start:prod
 ```
 
 ```bash
-cd frontend && npm run build && npm start
+cd frontend && npm run build && cp -r .next/static .next/standalone/.next/static && node .next/standalone/server.js
 ```
 
-Set `NODE_ENV=production` for the backend, so cookies become `Secure` (HTTPS only). Point the frontend at the API with `BACKEND_URL` (server-side rewrite target) and `NEXT_PUBLIC_REALTIME_URL` (browser WebSocket URL); both default to `http://localhost:4000`.
+The frontend builds as Next.js standalone output, so it runs with `node .next/standalone/server.js` (the same way the Docker image does).
+
+Set `NODE_ENV=production` for the backend, so cookies become `Secure` (HTTPS only). Point the frontend at the API with `BACKEND_URL` (server-side rewrite target) and `NEXT_PUBLIC_REALTIME_URL` (browser WebSocket URL); both default to `http://localhost:4000`. Both are read at build time, so set them before `npm run build`.
 
 ### Tests, linting and CI
 
@@ -219,7 +232,7 @@ cd frontend && npm run lint
 - **Frontend:** lint, typecheck and production build
 - **Docker:** both images build
 
-The backend has 104 unit tests covering auth, sessions and multi-account, users and roles, request lifecycle and four-eyes rules, bulk approval, worker claiming, retries and recovery, and env validation.
+The backend has 114 unit tests covering auth, sessions and multi-account, login and sign-up rate limiting, users, roles and account deactivation, request lifecycle and four-eyes rules, bulk actions and bulk approval, worker claiming, retries and recovery, and env validation.
 
 ## Configuration
 
@@ -232,23 +245,23 @@ Backend environment variables (`backend/.env`, validated in [`src/config/env.ts`
 | `DATABASE_URL` | — (required) | `postgresql://…` connection string |
 | `JWT_SECRET` | — (required) | At least 32 characters; signs access tokens |
 | `ACCESS_TOKEN_TTL_MINUTES` | `10` | Access token lifetime (1–60) |
-| `SESSION_TTL_HOURS` | `8` | Session length without "Remember me" |
-| `REMEMBER_ME_DAYS` | `30` | Session length with "Remember me" |
+| `SESSION_TTL_HOURS` | `8` | Session length without "Remember me" (up to 720) |
+| `REMEMBER_ME_DAYS` | `30` | Session length with "Remember me" (1–365) |
 | `WORKER_ENABLED` | `true` | Run the worker pool in this process |
 | `WORKER_CONCURRENCY` | `4` | Requests processed at the same time (1–20) |
-| `WORKER_POLL_MS` | `1000` | Fallback poll interval for idle workers (new work wakes them at once) |
-| `WORKER_LEASE_SECONDS` | `30` | A job is retried if its worker stops renewing for this long |
-| `WORKER_MAX_ATTEMPTS` | `3` | Attempts before a request is marked FAILED |
-| `WORKER_STEP_MS` | `2000` | Average duration of one simulated step |
-| `WORKER_FAILURE_RATE` | `0.03` | Chance a step fails, to demonstrate retries (0 disables) |
+| `WORKER_POLL_MS` | `1000` | Fallback poll interval for idle workers (100–60000; new work wakes them at once) |
+| `WORKER_LEASE_SECONDS` | `30` | A job is retried if its worker stops renewing for this long (5–600) |
+| `WORKER_MAX_ATTEMPTS` | `3` | Attempts before a request is marked FAILED (1–10) |
+| `WORKER_STEP_MS` | `2000` | Average duration of one simulated step (0–60000) |
+| `WORKER_FAILURE_RATE` | `0.03` | Chance a step fails, to demonstrate retries (0–1; 0 disables) |
 | `TRUST_PROXY` | `loopback` | Proxies allowed to pass on the client IP (Express `trust proxy` syntax); Docker uses `loopback, uniquelocal`. Rate limits are per IP |
 | `RATE_LIMIT_ENABLED` | `true` | Rate-limit login and sign-up |
 | `LOGIN_ATTEMPTS_PER_MINUTE` | `5` | Login or sign-up attempts per minute for one email from one IP (1–1000) |
 | `AUTH_REQUESTS_PER_MINUTE` | `20` | Login and sign-up requests per minute from one IP, across all emails (1–10000) |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | Origin allowed to open WebSocket connections |
-| `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | — | Used only by `npm run seed:admin` |
+| `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | — | Used only by `npm run seed:admin` (and the Docker `migrate` service) |
 
-Frontend environment variables (optional): `BACKEND_URL` and `NEXT_PUBLIC_REALTIME_URL`, both defaulting to `http://localhost:4000`.
+Frontend environment variables (optional, read at build time): `BACKEND_URL` (where the Next.js server forwards `/api/*`) and `NEXT_PUBLIC_REALTIME_URL` (browser WebSocket URL), both defaulting to `http://localhost:4000`.
 
 ## API reference
 
@@ -269,7 +282,7 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 | 403 | Your role doesn't allow it, or it's your own request (four-eyes) |
 | 404 | Not found, or not visible to you |
 | 409 | Conflict: changed since you loaded it (send the latest `version`), wrong state, or duplicate |
-| 429 | Too many login or sign-up attempts; wait for the `Retry-After` seconds |
+| 429 | Too many login or sign-up attempts; wait the seconds given in the `Retry-After-account` or `Retry-After-ip` header |
 
 ### Auth
 
@@ -279,7 +292,7 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 | POST | `/auth/refresh` | public | New access and refresh tokens for the active account (cookie), or `{ refreshToken }` for API clients. The old refresh token stops working. 200 · 401 |
 | GET | `/auth/me` | user | The signed-in user `{ id, email, fullName, role }` |
 | GET | `/auth/accounts` | public | Accounts saved in this browser, most recently used first; `active` marks the current one |
-| POST | `/auth/switch` | public | `{ userId }`: switch to another saved account without a password. 200 · 401 session ended · 404 |
+| POST | `/auth/switch` | public | `{ userId }`: switch to another saved account without a password. 200 · 400 · 401 session ended · 404 |
 | POST | `/auth/logout` | public | Sign out of the active account. 204 |
 | POST | `/auth/accounts/:userId/logout` | public | Sign one saved account out of this browser. 204 |
 | POST | `/auth/logout-all` | public | Sign every saved account out. 204 |
@@ -289,8 +302,8 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 | Method | Path | Access | Description |
 |---|---|---|---|
 | POST | `/users` | public | Sign up: `{ email, fullName, password }` → user (always OPERATOR). Rate-limited. 201 · 400 · 409 email taken · 429 |
-| GET | `/users?role=&search=&limit=&offset=` | admin | List users, newest first → `{ items, total, limit, offset }` |
-| PATCH | `/users/:id/role` | admin | `{ role: "SUPERVISOR" }` promotes an operator; `{ role: "OPERATOR" }` demotes a supervisor. 200 · 404 · 409 |
+| GET | `/users?role=&search=&limit=&offset=` | admin | List users, newest first (`search` matches email or name; `limit` 1–100, default 50) → `{ items, total, limit, offset }` |
+| PATCH | `/users/:id/role` | admin | `{ role: "SUPERVISOR" }` promotes an operator; `{ role: "OPERATOR" }` demotes a supervisor. 200 · 404 · 409 wrong current role or deactivated |
 | PATCH | `/users/:id/status` | admin | `{ active: false }` deactivates an operator or supervisor (every session revoked, open tabs signed out); `{ active: true }` reactivates. 200 · 403 own or admin account · 404 · 409 already in that state |
 
 ### Requests
@@ -300,10 +313,10 @@ Base URL: `http://localhost:4000` (from the browser: `http://localhost:3000/api`
 | POST | `/requests` | user | Submit. Body below. Optional `Idempotency-Key` header (8–100 chars) makes retries safe. 201 created · 200 same key retried · 409 key used by someone else |
 | GET | `/requests` | user | List, newest first. Operators get their own; staff get all. Query below → `{ items, total, limit, offset }` |
 | GET | `/requests/:id` | user | One request with `events` (timeline) and `jobs` (latest attempt). 404 if missing or not yours |
-| PATCH | `/requests/:id` | staff | `{ version, priority?, note? }`: change priority and/or add a timeline note. 409 finished or stale |
+| PATCH | `/requests/:id` | staff | `{ version, priority?, note? }`: change priority and/or add a timeline note (at most 500 characters). 403 · 404 · 409 finished or stale |
 | POST | `/requests/:id/approve` | staff | `{ version }`: AWAITING_APPROVAL → PENDING, queued for a worker. 403 own request · 409 |
-| POST | `/requests/:id/reject` | staff | `{ version, reason }`: → REJECTED; the reason is shown to the submitter. 403 · 409 |
-| POST | `/requests/bulk` | user | `{ action: "approve" \| "reject" \| "cancel", items: [{ id, version }], reason? }` (1–100 items; `reason` required to reject). Each request gets the same checks as the single action → `{ action, succeeded: [id], failed: [{ id, status, message }] }`. Approve/reject: staff only (403) |
+| POST | `/requests/:id/reject` | staff | `{ version, reason }` (reason 3–500 characters): → REJECTED; the reason is shown to the submitter. 403 · 409 |
+| POST | `/requests/bulk` | user | `{ action: "approve" \| "reject" \| "cancel", items: [{ id, version }], reason? }` (1–100 items; `reason` required to reject). Each request gets the same checks as the single action → `{ action, succeeded: [id], failed: [{ id, status, message }] }`. Items must be unique. Approve/reject: staff only. 200 · 400 · 403 |
 | POST | `/requests/approve-all` | staff | Bulk approve. Body below → `{ approved, skippedOwn, skippedChanged, remaining }` |
 | POST | `/requests/:id/retry` | staff | `{ version }`: FAILED → PENDING with a fresh set of attempts. 409 |
 | POST | `/requests/:id/cancel` | submitter or staff | `{ version, reason? }`: → CANCELLED; a running job stops at its next step. 409 finished |
@@ -379,14 +392,16 @@ socket.on("request.changed", ({ request, event }) => console.log(request.code, e
 | Event (server → client) | Payload | Delivered to |
 |---|---|---|
 | `request.changed` | `{ request, event }`: the full request after the change, and the timeline event describing it (`eventType`, `fromStatus`, `toStatus`, `progress`, `message`, `actor`, `createdAt`) | All supervisors and admins (room `staff`) and the submitter (room `user:<id>`) |
-| `session.changed` | none | The user whose role changed (room `user:<id>`); their sockets are then disconnected so they reconnect with their new role |
+| `session.changed` | none | The user whose role changed or who was deactivated (room `user:<id>`); their sockets are then disconnected, so they reconnect with their new role (or are signed out) |
 
 `eventType` is one of:
 
 - `created`, `approved`, `rejected`, `cancelled`, `retried`, `updated` (priority) and `note`: changes made by people
 - `status_changed`: a worker started, completed or failed the request (see `fromStatus` and `toStatus`)
 - `progress_updated`: a step finished (with `progress`)
-- `processing`: worker notes, such as a retry being scheduled after a failed attempt The socket is **push-only**: all changes are made through the REST API. The flow is diagrammed in [docs/DESIGN.md §5](docs/DESIGN.md#5-websocket-communication).
+- `processing`: worker notes, such as a retry being scheduled after a failed attempt
+
+The socket is **push-only**: all changes are made through the REST API. The flow is diagrammed in [docs/DESIGN.md §5](docs/DESIGN.md#5-websocket-communication).
 
 ## Database
 
@@ -399,7 +414,7 @@ PostgreSQL with five tables: `users`, `sessions`, `requests`, `execution_jobs` a
   2. `npx prisma contract emit`
   3. `npx prisma migration plan --name <change>`
   4. `npx prisma db migrate --advance-ref db`
-- **Reset locally:** `docker compose down -v` (deletes the data volume), then start again from [step 1](#1-database-setup).
+- **Reset locally:** `cd backend && docker compose down -v` (deletes the data volume), then start again from [step 1](#1-database-setup).
 
 ## Assumptions
 
