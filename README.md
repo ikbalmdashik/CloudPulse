@@ -56,6 +56,7 @@ Why each was chosen: [docs/DESIGN.md §8](docs/DESIGN.md#8-technology-stack-and-
 ```
 CloudPulse/
 ├── docker-compose.yml        # The whole stack in Docker (reads a .env next to it)
+├── .env.example              # Docker stack settings (copy to .env)
 ├── .github/workflows/ci.yml  # CI: lint, typecheck, test, build, Docker images
 ├── docs/                     # ANALYSIS.md and DESIGN.md
 ├── backend/                  # NestJS API, WebSocket gateway, worker pool
@@ -93,15 +94,29 @@ CloudPulse/
 
 Runs the whole stack (PostgreSQL, migrations, the API with its workers, and the web app) with one command. You need only Docker.
 
-Create a `.env` file next to `docker-compose.yml` with at least:
+Copy the example settings to a `.env` next to `docker-compose.yml`:
 
 ```bash
-JWT_SECRET=<at least 32 random characters>
-ADMIN_EMAIL=admin@cloudpulse.local
-ADMIN_PASSWORD=<at least 8 characters, with a letter and a number>
+cp .env.example .env
 ```
 
-Optional: `ADMIN_NAME`, `POSTGRES_PASSWORD` (default `postgres123`), `FRONTEND_PORT`, `BACKEND_PORT`, `WORKER_CONCURRENCY`, `WORKER_STEP_MS`, `WORKER_FAILURE_RATE`, `TRUST_PROXY`, `RATE_LIMIT_ENABLED`. Then:
+Then edit `.env`. At minimum, replace `JWT_SECRET` with at least 32 random characters, for example:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+and change `ADMIN_PASSWORD` (at least 8 characters, with a letter and a number). `.env` is git-ignored; never commit it.
+
+| Variable | In `.env.example` | Description |
+|---|---|---|
+| `JWT_SECRET` | placeholder (required) | Signs login tokens; at least 32 characters. Compose refuses to start without it |
+| `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | `admin@cloudpulse.local` / `Administrator` / `admin1234` | First admin, created (or promoted) by the `migrate` service. Leave `ADMIN_EMAIL` empty to skip |
+| `POSTGRES_PASSWORD` | `postgres123` | Database password (the database is not exposed outside Docker) |
+| `FRONTEND_PORT` / `BACKEND_PORT` | `3000` / `4000` | Host ports for the web app and the API |
+| `WORKER_CONCURRENCY` / `WORKER_STEP_MS` / `WORKER_FAILURE_RATE` | `4` / `2000` / `0.03` | Background processing (see [Configuration](#configuration)) |
+
+`TRUST_PROXY` (default `loopback, uniquelocal`) and `RATE_LIMIT_ENABLED` (default `true`) can also be set in `.env`; they are not in the example because the defaults suit Docker. Then:
 
 ```bash
 docker compose up --build
@@ -235,6 +250,8 @@ cd frontend && npm run lint
 The backend has 114 unit tests covering auth, sessions and multi-account, login and sign-up rate limiting, users, roles and account deactivation, request lifecycle and four-eyes rules, bulk actions and bulk approval, worker claiming, retries and recovery, and env validation.
 
 ## Configuration
+
+There are two env files: the root `.env` (from [`.env.example`](.env.example)) configures the full Docker stack, see [Quick start with Docker](#quick-start-with-docker); `backend/.env` (from [`backend/.env.example`](backend/.env.example)) is for running the backend with npm. Docker Compose passes the root values on to the backend as the variables below.
 
 Backend environment variables (`backend/.env`, validated in [`src/config/env.ts`](backend/src/config/env.ts)):
 
